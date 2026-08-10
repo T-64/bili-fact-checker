@@ -55,9 +55,11 @@ export HTTPS_PROXY='http://127.0.0.1:7890'  # 国内访问 Google / 部分 API �
 
 完整变量列表见 [`.env.example`](.env.example)。
 
-### 2. 本地 Whisper（无 CC 时自动转写）
+### 2. 本地 Whisper（可选）
 
-语音识别在**你自己的电脑上**跑，不上传到本项目的服务器：
+多数 B 站视频已有 CC / AI 字幕，**不必装 Whisper**。只有「没字幕」时才会用到本机转写。
+
+若要用本机转写，语音识别在**你自己的电脑上**跑：
 
 | 组件 | 作用 | 怎么装 |
 |---|---|---|
@@ -72,25 +74,25 @@ export WHISPER_DEVICE=cuda                   # 无显卡改为 cpu
 export WHISPER_COMPUTE_TYPE=float16          # CPU 常用 int8
 ```
 
-没有装 `faster-whisper`、或 `WHISPER_MODEL` 路径不存在时：**不会静默失败**，会提示你改用下面的方案 3。
+没装 `faster-whisper`、或模型路径不存在时：有 CC 照常跑；无 CC 会报错并提示改用下面的外部字幕方案。
 
-### 3. 没有本地 Whisper 时
+### 3. 无字幕且没有本机 Whisper 时
 
 字幕获取顺序：
 
-1. B 站自带 CC / AI 字幕（最快，不需要 Whisper）
-2. 本机 faster-whisper（需方案 2）
+1. B 站自带 CC / AI 字幕（默认路径，不需要 Whisper）
+2. （可选）本机 faster-whisper
 3. **外部字幕文件**：用别的工具先转好，再喂进来
 
-例如用 [VideoCaptioner](https://github.com/WEIFENG2333/VideoCaptioner)（卡卡字幕助手）在本机生成 `.srt`，然后：
+例如用 [VideoCaptioner](https://github.com/WEIFENG2333/VideoCaptioner) 生成 `.srt`：
 
 ```bash
 bili-fact-checker run "BVxxxxxxxx" --transcript ./video.srt --print-md
 ```
 
-也支持 `.txt`（纯文本）和本工具自己的 transcript `.json`。
+也支持 `.txt` 和本工具的 transcript `.json`。
 
-> 说明：本仓库**不内置、不 import** VideoCaptioner（其许可证为 GPL-3.0）。它只是可选的外部转写方式之一；你在自己环境里怎么装、怎么用，与本项目解耦。
+> 本仓库不内置、不 import VideoCaptioner（GPL-3.0）；它只是可选的外部转写方式。
 
 ---
 
