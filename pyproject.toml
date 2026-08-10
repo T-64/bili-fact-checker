@@ -1,0 +1,35 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "bili-fact-checker"
+version = "0.1.0"
+description = "Bilibili oral-content analysis and evidence-backed fact checking (CLI / API / Agent Skill)"
+readme = "README.md"
+license = { text = "MIT" }
+requires-python = ">=3.10"
+authors = [{ name = "T-64" }]
+keywords = ["bilibili", "fact-check", "subtitle", "asr", "llm"]
+dependencies = [
+  "fastapi>=0.110",
+  "uvicorn[standard]>=0.27",
+]
+
+[project.optional-dependencies]
+asr = ["faster-whisper>=1.0"]
+dev = ["pytest>=8.0"]
+
+[project.scripts]
+bili-fact-checker = "bili_fact_checker.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/T-64/bili-fact-checker"
+Repository = "https://github.com/T-64/bili-fact-checker"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
