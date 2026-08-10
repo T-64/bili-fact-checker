@@ -42,9 +42,18 @@ def cmd_subtitle(args: argparse.Namespace) -> int:
 def cmd_list(args: argparse.Namespace) -> int:
     settings = Settings.from_env()
     bvid = extract_bvid(args.input)
+    from bili_fact_checker.ingest import check_bili_login
+
+    ok, info = check_bili_login(settings)
+    _err(f"bilibili login: {'OK · ' + info if ok else 'NOT LOGGED IN · ' + info}")
     aid, cid, title = fetch_video_meta(settings, bvid)
     _err(f"{bvid} · {title}")
-    for s in list_subtitles(settings, aid, cid):
+    subs, meta = list_subtitles(settings, aid, cid, bvid=bvid)
+    if meta.get("need_login_subtitle") and not subs:
+        _err("hint: need_login_subtitle=true — refresh SESSDATA to see CC/AI tracks")
+    if not subs:
+        print("(no subtitle tracks returned)")
+    for s in subs:
         print(f"[{s.get('lan')}] {s.get('lan_doc')}")
     return 0
 

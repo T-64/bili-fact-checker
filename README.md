@@ -36,6 +36,9 @@ pip install -e .
 
 # 凭证（勿提交进 git）
 export BILI_SESSDATA='你的SESSDATA'          # 或写入 ~/.config/bili/SESSDATA
+# 注意：很多视频的 CC/AI 字幕必须登录才能通过 API 拉取。
+# 若 bili-fact-checker list 显示 NOT LOGGED IN / need_login_subtitle，
+# 说明 Cookie 过期——请从浏览器更新 SESSDATA（不要当成「视频没字幕」）。
 export OPENAI_API_KEY='...'                  # 也可用 GLM_API_KEY / ~/.hermes/.env
 export OPENAI_API_BASE='https://api.z.ai/api/paas/v4'   # OpenAI 兼容；可改
 export OPENAI_MODEL='glm-4-flash'

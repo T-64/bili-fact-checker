@@ -6,6 +6,7 @@ import json
 import os
 import re
 import subprocess
+import sys
 import tempfile
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
@@ -99,15 +100,35 @@ def fetch_video_meta(settings: Settings, bvid: str) -> tuple[str, str, str]:
     return str(info["aid"]), str(info["cid"]), str(info["title"])
 
 
-def list_subtitles(settings: Settings, aid: str, cid: str) -> list[dict[str, Any]]:
-    data = _api_get(
-        settings,
-        f"https://api.bilibili.com/x/player/wbi/v2?aid={aid}&cid={cid}",
-        cookie=True,
-    )
+def check_bili_login(settings: Settings) -> tuple[bool, str]:
+    """Return (is_login, uname_or_reason)."""
+    try:
+        data = _api_get(settings, "https://api.bilibili.com/x/web-interface/nav", cookie=True)
+    except Exception as e:
+        return False, f"nav 请求失败: {e}"
+    if data.get("code") == -101 or not (data.get("data") or {}).get("isLogin"):
+        return False, "SESSDATA 无效或已过期（账号未登录）"
+    uname = str((data.get("data") or {}).get("uname") or "")
+    return True, uname
+
+
+def list_subtitles(
+    settings: Settings, aid: str, cid: str, *, bvid: str = ""
+) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    """Return (subtitles, player_data_meta)."""
+    url = f"https://api.bilibili.com/x/player/wbi/v2?aid={aid}&cid={cid}"
+    if bvid:
+        url += f"&bvid={bvid}"
+    data = _api_get(settings, url, cookie=True)
     if data.get("code") != 0:
         raise RuntimeError(f"获取字幕列表失败: {data.get('message', 'unknown')}")
-    return data.get("data", {}).get("subtitle", {}).get("subtitles", []) or []
+    payload = data.get("data") or {}
+    subs = (payload.get("subtitle") or {}).get("subtitles") or []
+    meta = {
+        "need_login_subtitle": bool(payload.get("need_login_subtitle")),
+        "login_mid": payload.get("login_mid") or 0,
+    }
+    return list(subs), meta
 
 
 def _pick_subtitle(subs: list[dict[str, Any]], lang: str) -> dict[str, Any] | None:
@@ -312,7 +333,7 @@ def fetch_transcript(
 
     bvid = extract_bvid(url_or_bvid)
     aid, cid, title = fetch_video_meta(settings, bvid)
-    subs = list_subtitles(settings, aid, cid)
+    subs, meta = list_subtitles(settings, aid, cid, bvid=bvid)
     target = _pick_subtitle(subs, lang)
 
     if target:
@@ -326,6 +347,21 @@ def fetch_transcript(
             language=str(target.get("lan", lang)),
             segments=segs,
         )
+
+    # Empty track list is often "not logged in", not "video has no captions"
+    if meta.get("need_login_subtitle") or not meta.get("login_mid"):
+        ok, reason = check_bili_login(settings)
+        if not ok:
+            msg = (
+                f"警告: 视频 {bvid} 的 CC/AI 字幕需要登录才能拉取，但当前 Cookie 未登录：{reason}。"
+                "请更新 ~/.config/bili/SESSDATA（以及 cookies.txt）。"
+            )
+            if not asr:
+                raise RuntimeError(
+                    msg
+                    + "\n已禁用 ASR。刷新登录后再跑，或去掉 --no-asr / 使用 --transcript。"
+                )
+            print(msg + " 将尝试本机 ASR 兜底（若可用）。", file=sys.stderr)
 
     if not asr:
         raise RuntimeError(
