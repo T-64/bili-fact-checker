@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>核查报告 · 示例：科普口播核查演示</title>
+<style>
+:root { --bg:#0f1115; --panel:#171a21; --text:#e8eaed; --muted:#9aa0a6; --line:#2a2f3a;
+  --green:#3d8b6e; --red:#a85a5a; --amber:#a88a4a; --gray:#6b7280; }
+* { box-sizing:border-box; }
+body { margin:0; font-family: ui-sans-serif, system-ui, sans-serif; background:var(--bg); color:var(--text); line-height:1.55; }
+main { max-width:820px; margin:0 auto; padding:32px 20px 64px; }
+h1 { font-size:1.5rem; margin:0 0 8px; }
+.sub { color:var(--muted); font-size:.95rem; margin-bottom:24px; }
+.callout { border:1px solid var(--line); background:var(--panel); padding:12px 14px; border-radius:8px; color:var(--muted); font-size:.9rem; }
+section { margin-top:28px; }
+h2 { font-size:1.15rem; border-bottom:1px solid var(--line); padding-bottom:8px; }
+.claim { background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:14px 16px; margin:12px 0; }
+.claim header { display:flex; gap:10px; align-items:center; margin-bottom:8px; }
+.idx { color:var(--muted); font-size:.85rem; }
+.badge { font-size:.75rem; padding:2px 8px; border-radius:999px; border:1px solid var(--line); }
+.badge.green { color:#b6e2d0; border-color:var(--green); }
+.badge.red { color:#f0c4c4; border-color:var(--red); }
+.badge.amber { color:#ead7a8; border-color:var(--amber); }
+.badge.gray { color:#c5c9d0; border-color:var(--gray); }
+.claim-text { margin:0 0 6px; font-weight:600; }
+.meta, .rationale, .no-src { color:var(--muted); font-size:.9rem; }
+.sources { margin:8px 0 0; padding-left:18px; }
+.sources a { color:#8ab4f8; }
+a { color:#8ab4f8; }
+</style>
+</head>
+<body>
+<main>
+  <h1>B站口播事实核查</h1>
+  <p class="sub"><a href="https://www.bilibili.com/video/BV1EXAMPLE001">示例：科普口播核查演示</a>
+  · BV1EXAMPLE001 · 字幕 cc</p>
+  <div class="callout">本工具输出仅为辅助线索，不是权威最终裁决。请核对来源链接；标为 model_inference 的条目无外部举证。</div>
+  <section>
+    <h2>内容总结</h2>
+    <div>**概述**<br>
+这是一份示例报告，展示 bili-fact-checker 的输出结构。<br>
+<br>
+**关键断言**<br>
+视频提出若干可核查声明，系统分别检索 ClaimReview 与网页证据。<br>
+<br>
+**如何阅读**<br>
+优先看带 sourced_* 标签的条目；model_inference 仅供参考。</div>
+  </section>
+  <section>
+    <h2>声明核查（2）</h2>
+    
+<article class="claim">
+  <header><span class="idx">#1</span> <span class="badge green">supported · sourced_web</span></header>
+  <p class="claim-text">示例声明：水在标准大气压下约 100°C 沸腾</p>
+  <p class="meta">其他
+   · 42s</p>
+  <p class="rationale">网页证据与声明一致（示例数据）。</p>
+  <ul class='sources'><li><a href="https://example.com/boiling-point" target="_blank" rel="noopener">https://example.com/boiling-point</a></li></ul>
+</article>
+<article class="claim">
+  <header><span class="idx">#2</span> <span class="badge gray">unverified · model_inference</span></header>
+  <p class="claim-text">示例声明：某冷门统计无法在公开库命中</p>
+  <p class="meta">统计数据
+   · 90s</p>
+  <p class="rationale">无外部证据，仅为模型推断（示例）。</p>
+  <p class='no-src'>无外部证据</p>
+</article>
+  </section>
+</main>
+</body>
+</html>

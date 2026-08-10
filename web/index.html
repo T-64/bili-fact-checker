@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <title>bili-fact-checker</title>
+  <style>
+    :root { --bg:#0f1115; --panel:#171a21; --text:#e8eaed; --muted:#9aa0a6; --line:#2a2f3a; --accent:#8ab4f8; }
+    * { box-sizing: border-box; }
+    body { margin:0; font-family: ui-sans-serif, system-ui, sans-serif; background:var(--bg); color:var(--text); }
+    main { max-width:720px; margin:0 auto; padding:40px 20px; }
+    h1 { font-size:1.6rem; margin:0 0 6px; letter-spacing:-0.02em; }
+    .lead { color:var(--muted); margin:0 0 28px; }
+    form { display:flex; flex-direction:column; gap:12px; background:var(--panel); border:1px solid var(--line); border-radius:12px; padding:18px; }
+    label { font-size:.85rem; color:var(--muted); }
+    input[type=text] { width:100%; padding:10px 12px; border-radius:8px; border:1px solid var(--line); background:#0c0e12; color:var(--text); }
+    .row { display:flex; gap:16px; flex-wrap:wrap; align-items:center; }
+    button { border:0; border-radius:8px; padding:10px 16px; background:var(--accent); color:#0b1020; font-weight:600; cursor:pointer; }
+    button:disabled { opacity:.5; cursor:not-allowed; }
+    #status { margin-top:16px; color:var(--muted); font-size:.9rem; white-space:pre-wrap; }
+    #frame-wrap { margin-top:20px; display:none; }
+    iframe { width:100%; min-height:70vh; border:1px solid var(--line); border-radius:12px; background:#fff; }
+    .note { margin-top:24px; font-size:.85rem; color:var(--muted); }
+    a { color:var(--accent); }
+  </style>
+</head>
+<body>
+<main>
+  <h1>bili-fact-checker</h1>
+  <p class="lead">B站口播内容分析与可举证事实核查。输出是辅助线索，不是最终真理。</p>
+  <form id="form">
+    <div>
+      <label for="bvid">BV 号或链接</label>
+      <input id="bvid" type="text" placeholder="BV1xxxxxxxx 或 https://www.bilibili.com/video/..." required/>
+    </div>
+    <div class="row">
+      <label><input type="checkbox" id="summary" checked/> summary</label>
+      <label><input type="checkbox" id="verify" checked/> verify</label>
+      <label><input type="checkbox" id="asr" checked/> ASR 兜底</label>
+    </div>
+    <button type="submit" id="go">开始核查</button>
+  </form>
+  <div id="status"></div>
+  <div id="frame-wrap"><iframe id="frame" title="report"></iframe></div>
+  <p class="note">自托管 API：<code>POST /v1/analyze</code> · 健康检查 <a href="/health">/health</a> · 可把本页挂到 blog 入口。</p>
+</main>
+<script>
+const statusEl = document.getElementById('status');
+const frameWrap = document.getElementById('frame-wrap');
+const frame = document.getElementById('frame');
+const go = document.getElementById('go');
+
+document.getElementById('form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const bvid = document.getElementById('bvid').value.trim();
+  const tasks = [];
+  if (document.getElementById('summary').checked) tasks.push('summary');
+  if (document.getElementById('verify').checked) tasks.push('verify');
+  if (!tasks.length) { statusEl.textContent = '至少选择一个任务'; return; }
+  go.disabled = true;
+  frameWrap.style.display = 'none';
+  statusEl.textContent = '提交任务…';
+  try {
+    const res = await fetch('/v1/analyze', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        bvid,
+        tasks,
+        asr: document.getElementById('asr').checked,
+      }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.detail || JSON.stringify(data));
+    const jobId = data.job_id;
+    statusEl.textContent = `任务 ${jobId} 运行中…`;
+    for (;;) {
+      await new Promise(r => setTimeout(r, 1500));
+      const jres = await fetch(`/v1/jobs/${jobId}`);
+      const job = await jres.json();
+      if (job.status === 'running' || job.status === 'queued') {
+        const logs = (job.logs || []).slice(-3).join('\n');
+        statusEl.textContent = `任务 ${jobId} · ${job.status}\n${logs}`;
+        continue;
+      }
+      if (job.status === 'error') throw new Error(job.error || 'failed');
+      statusEl.textContent = `完成 · ${jobId}`;
+      frame.src = `/v1/jobs/${jobId}/report.html`;
+      frameWrap.style.display = 'block';
+      break;
+    }
+  } catch (err) {
+    statusEl.textContent = '错误: ' + (err && err.message ? err.message : err);
+  } finally {
+    go.disabled = false;
+  }
+});
+</script>
+</body>
+</html>
