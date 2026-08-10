@@ -8,62 +8,38 @@ description: >-
 
 # bili-fact-checker
 
-B站口播内容分析与可举证事实核查。差异化：报告必须区分 **有出处 / 模型推断 / 未找到证据**。
+B站口播内容分析与可举证事实核查。报告必须区分 **sourced_factcheck / sourced_web / model_inference**。
 
 ## When to use
 
 - User pastes a `BVxxxx` or `bilibili.com/video/...` link
-- Asks to summarize, extract claims, or fact-check spoken claims in a B站 video
+- Asks to summarize, extract claims, or fact-check spoken claims
 
 ## Prerequisites
 
-Environment (see repo `.env.example`):
+See repo README / `.env.example`:
 
-- `BILI_SESSDATA` or `~/.config/bili/SESSDATA`
-- `OPENAI_API_KEY` / `GLM_API_KEY` (OpenAI-compatible)
-- `GOOGLE_FACTCHECK_API_KEY` (optional but recommended)
-- Optional: `SEARXNG_URL` or `TAVILY_API_KEY` for web evidence
-- Optional ASR: `faster-whisper` + local model at `WHISPER_MODEL`
+- Required: `BILI_SESSDATA`, OpenAI-compatible LLM key
+- Recommended: `GOOGLE_FACTCHECK_API_KEY`, `SEARXNG_URL` or `TAVILY_API_KEY`
+- Subtitles: B站 CC first; else local `faster-whisper` + `WHISPER_MODEL`; else `--transcript file.srt` (e.g. from VideoCaptioner)
 
 ## Commands
 
-Prefer the installed CLI from the repo:
-
 ```bash
-# full pipeline → output/<bvid>/report.{json,md,html}
 bili-fact-checker run "BVxxxxxxxx" --print-md
-
-# subtitle only
 bili-fact-checker subtitle "BVxxxxxxxx" -o out.srt
-
-# summary only
+bili-fact-checker run "BVxxxxxxxx" --transcript ./out.srt   # no local Whisper
 bili-fact-checker summarize "BVxxxxxxxx"
-
-# verify claims
 bili-fact-checker verify "BVxxxxxxxx"
 ```
 
-Or HTTP (local server):
+Local API:
 
 ```bash
-cd /path/to/bili-fact-checker
-python -m uvicorn server.app:app --host 127.0.0.1 --port 8765
-
-curl -X POST http://127.0.0.1:8765/v1/analyze \
-  -H 'Content-Type: application/json' \
-  -d '{"bvid":"BVxxxxxxxx","tasks":["summary","verify"]}'
+uvicorn server.app:app --host 127.0.0.1 --port 8765
 ```
 
-## Output contract
+## Output
 
-- `report.json`: machine-readable schema `0.1`
-- Each claim has `judgment.label` in:
-  - `sourced_factcheck` — Google Fact Check Tools hit
-  - `sourced_web` — web search evidence
-  - `model_inference` — no external evidence (must not be presented as verified)
-- Always surface the disclaimer in the report
-
-## Notes
-
-- Do not import VideoCaptioner into this project (GPL). Credits thank it as prior captioning tooling.
-- This tool produces **leads**, not final truth.
+- `judgment.label`: `sourced_factcheck` | `sourced_web` | `model_inference`
+- Treat results as leads, not final truth. Never present `model_inference` as verified.

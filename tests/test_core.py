@@ -69,6 +69,29 @@ def test_report_schema_and_labels():
     assert json.loads(raw)["video"]["bvid"] == "BV1TEST00001"
 
 
+def test_parse_srt_and_load_file(tmp_path):
+    from bili_fact_checker.config import Settings
+    from bili_fact_checker.ingest import _parse_srt, load_transcript_file
+
+    srt = """1
+00:00:01,000 --> 00:00:03,000
+你好世界
+
+2
+00:00:04,000 --> 00:00:06,500
+第二句
+"""
+    segs = _parse_srt(srt)
+    assert len(segs) == 2
+    assert segs[0].text == "你好世界"
+    path = tmp_path / "a.srt"
+    path.write_text(srt, encoding="utf-8")
+    settings = Settings.from_env()
+    tr = load_transcript_file(settings, "BV1TEST00001", path)
+    assert tr.source == "file"
+    assert "你好世界" in tr.text
+
+
 def test_chunking_import():
     from bili_fact_checker.analyze import _chunk_text
 

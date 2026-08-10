@@ -191,6 +191,113 @@ def whisper_transcribe(settings: Settings, bvid: str, language: str = "auto") ->
             os.unlink(audio_path)
 
 
+def asr_ready(settings: Settings) -> tuple[bool, str]:
+    """Return (ok, hint). Whisper runs locally via faster-whisper + model weights."""
+    try:
+        import faster_whisper  # noqa: F401
+    except ImportError:
+        return False, "未安装 faster-whisper：pip install 'bili-fact-checker[asr]'"
+    model_path = Path(settings.whisper_model)
+    if not model_path.exists():
+        return (
+            False,
+            f"本地 Whisper 模型不存在: {model_path}（设置 WHISPER_MODEL，需 CTranslate2 格式）",
+        )
+    return True, ""
+
+
+def _parse_srt(content: str) -> list[Segment]:
+    segs: list[Segment] = []
+    blocks = re.split(r"\n\s*\n", content.strip())
+    ts_re = re.compile(
+        r"(\d{2}):(\d{2}):(\d{2})[,.](\d{3})\s*-->\s*(\d{2}):(\d{2}):(\d{2})[,.](\d{3})"
+    )
+
+    def to_sec(h: str, m: str, s: str, ms: str) -> float:
+        return int(h) * 3600 + int(m) * 60 + int(s) + int(ms) / 1000.0
+
+    for block in blocks:
+        lines = [ln for ln in block.splitlines() if ln.strip()]
+        if len(lines) < 2:
+            continue
+        # optional index line
+        idx = 0
+        if lines[0].strip().isdigit():
+            idx = 1
+        if idx >= len(lines):
+            continue
+        m = ts_re.search(lines[idx])
+        if not m:
+            continue
+        text = " ".join(lines[idx + 1 :]).strip()
+        if not text:
+            continue
+        segs.append(
+            Segment(
+                start=to_sec(*m.group(1, 2, 3, 4)),
+                end=to_sec(*m.group(5, 6, 7, 8)),
+                text=text,
+            )
+        )
+    return segs
+
+
+def load_transcript_file(
+    settings: Settings,
+    url_or_bvid: str,
+    transcript_path: str | Path,
+) -> Transcript:
+    """Use an external transcript (e.g. from VideoCaptioner) instead of ASR."""
+    path = Path(transcript_path)
+    if not path.exists():
+        raise FileNotFoundError(f"字幕文件不存在: {path}")
+
+    bvid = extract_bvid(url_or_bvid)
+    aid, cid, title = ("", "", bvid)
+    if settings.sessdata:
+        try:
+            aid, cid, title = fetch_video_meta(settings, bvid)
+        except Exception:
+            pass
+
+    raw = path.read_text(encoding="utf-8")
+    suffix = path.suffix.lower()
+    if suffix == ".json":
+        data = json.loads(raw)
+        if isinstance(data, dict) and "segments" in data:
+            segs = [
+                Segment(
+                    start=float(s.get("start", 0)),
+                    end=float(s.get("end", 0)),
+                    text=str(s.get("text", "")).strip(),
+                )
+                for s in data["segments"]
+                if str(s.get("text", "")).strip()
+            ]
+            title = str(data.get("title") or title)
+        else:
+            raise ValueError("JSON 字幕需含 segments[{start,end,text}]")
+    elif suffix == ".srt":
+        segs = _parse_srt(raw)
+    else:
+        # plain text → one segment
+        text = " ".join(raw.split())
+        segs = [Segment(start=0.0, end=0.0, text=text)] if text else []
+
+    if not segs:
+        raise RuntimeError(f"未能从 {path} 解析出字幕内容")
+
+    return Transcript(
+        bvid=bvid,
+        title=title,
+        aid=aid,
+        cid=cid,
+        source="file",
+        language="external",
+        segments=segs,
+    )
+
+
 def fetch_transcript(
     settings: Settings,
     url_or_bvid: str,
@@ -222,7 +329,19 @@ def fetch_transcript(
 
     if not asr:
         raise RuntimeError(
-            f"视频 {bvid} 无可用字幕；加 --asr 使用本地 Whisper 转写"
+            f"视频 {bvid} 无 CC/AI 字幕，且已禁用 ASR。"
+            "可：去掉 --no-asr 并安装本地 Whisper；"
+            "或用 VideoCaptioner 等工具生成 .srt 后加 --transcript path.srt"
+        )
+
+    ok, hint = asr_ready(settings)
+    if not ok:
+        raise RuntimeError(
+            f"视频 {bvid} 无现成字幕，需要本地语音转写，但环境未就绪：{hint}\n"
+            "可选方案：\n"
+            "  1) pip install 'bili-fact-checker[asr]' 并准备 CTranslate2 模型（WHISPER_MODEL）\n"
+            "  2) 用外部字幕工具（如 VideoCaptioner）先转出 .srt，再运行：\n"
+            "     bili-fact-checker run BV... --transcript out.srt"
         )
 
     segs = whisper_transcribe(settings, bvid, language="zh" if "zh" in lang else "auto")

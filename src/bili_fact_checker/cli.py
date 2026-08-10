@@ -20,7 +20,12 @@ def _err(msg: str) -> None:
 
 def cmd_subtitle(args: argparse.Namespace) -> int:
     settings = Settings.from_env()
-    tr = fetch_transcript(settings, args.input, lang=args.lang, asr=args.asr)
+    if getattr(args, "transcript", None):
+        from bili_fact_checker.ingest import load_transcript_file
+
+        tr = load_transcript_file(settings, args.input, args.transcript)
+    else:
+        tr = fetch_transcript(settings, args.input, lang=args.lang, asr=args.asr)
     out = args.output
     if out:
         path = Path(out)
@@ -61,6 +66,7 @@ def cmd_run(args: argparse.Namespace, tasks: list[str] | None = None) -> int:
         tasks=task_list,
         lang=args.lang,
         asr=args.asr,
+        transcript_file=getattr(args, "transcript", None),
         log=_err,
     )
     out_dir = Path(args.output or f"output/{report['video']['bvid']}")
@@ -81,8 +87,18 @@ def build_parser() -> argparse.ArgumentParser:
     common = argparse.ArgumentParser(add_help=False)
     common.add_argument("input", help="BV id or bilibili URL")
     common.add_argument("--lang", default="zh-CN", help="subtitle language preference")
-    common.add_argument("--asr", action="store_true", default=True, help="fallback to Whisper if no CC (default on)")
-    common.add_argument("--no-asr", action="store_false", dest="asr", help="disable ASR fallback")
+    common.add_argument(
+        "--asr",
+        action="store_true",
+        default=True,
+        help="no CC → try local faster-whisper (default on)",
+    )
+    common.add_argument("--no-asr", action="store_false", dest="asr", help="disable local ASR")
+    common.add_argument(
+        "--transcript",
+        metavar="FILE",
+        help="use external .srt/.txt/.json instead of CC/ASR (e.g. from VideoCaptioner)",
+    )
 
     sp = sub.add_parser("subtitle", parents=[common], help="fetch CC / ASR transcript")
     sp.add_argument("-o", "--output", help="output .srt or .json path")
