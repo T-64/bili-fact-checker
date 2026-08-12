@@ -56,6 +56,8 @@ class Settings:
     search_timeout_seconds: float
     fetch_max_bytes: int
     fetch_timeout_seconds: float
+    evidence_reranker: str
+    evidence_reranker_model: str
 
     @classmethod
     def from_env(cls) -> "Settings":
@@ -93,6 +95,11 @@ class Settings:
             search_timeout_seconds=float(_env("BFC_SEARCH_TIMEOUT", "30")),
             fetch_max_bytes=int(_env("BFC_FETCH_MAX_BYTES", "2000000")),
             fetch_timeout_seconds=float(_env("BFC_FETCH_TIMEOUT", "20")),
+            evidence_reranker=_env("BFC_EVIDENCE_RERANKER", "lexical").lower(),
+            evidence_reranker_model=_env(
+                "BFC_EVIDENCE_RERANKER_MODEL",
+                "BAAI/bge-reranker-v2-m3",
+            ),
         )
 
     @property

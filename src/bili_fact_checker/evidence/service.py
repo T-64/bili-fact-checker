@@ -15,6 +15,10 @@ from bili_fact_checker.evidence.fetch import (
     extract_relevant_excerpts,
     fetch_candidate,
 )
+from bili_fact_checker.evidence.rank import (
+    EvidenceReranker,
+    build_evidence_reranker,
+)
 from bili_fact_checker.models import (
     AnalysisEvent,
     AtomicClaim,
@@ -138,11 +142,13 @@ class EvidenceService:
         *,
         page_fetcher: PageFetcher = fetch_candidate,
         excerpt_assessor: ExcerptAssessor = assess_excerpts_with_llm,
+        reranker: EvidenceReranker | None = None,
     ) -> None:
         self.settings = settings
         self.search_provider = search_provider
         self.page_fetcher = page_fetcher
         self.excerpt_assessor = excerpt_assessor
+        self.reranker = reranker or build_evidence_reranker(settings)
 
     def analyze_claim(self, claim: AtomicClaim) -> ClaimEvidenceResult:
         events: list[AnalysisEvent] = []
@@ -234,6 +240,7 @@ class EvidenceService:
                     entities=claim.entities,
                     first_id=len(excerpts) + 1,
                     limit=3,
+                    reranker=self.reranker,
                 )
             )
 

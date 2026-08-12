@@ -123,6 +123,24 @@ def test_duplicate_domain_does_not_fake_independence():
     assert verdict.strength == EvidenceStrength.MEDIUM
 
 
+def test_subdomains_of_same_organization_do_not_fake_independence():
+    docs = [
+        document(1, "news.example.com"),
+        document(2, "research.example.com"),
+    ]
+    excerpts = [excerpt(1, docs[0].id), excerpt(2, docs[1].id)]
+    verdict = aggregate_verdict(
+        [
+            assessment(1, EvidenceStance.SUPPORTS),
+            assessment(2, EvidenceStance.SUPPORTS),
+        ],
+        excerpts,
+        docs,
+    )
+    assert verdict.verdict == Verdict.INSUFFICIENT_EVIDENCE
+    assert verdict.strength == EvidenceStrength.MEDIUM
+
+
 def test_conflicting_high_strength_evidence_is_disputed():
     docs = [
         document(1, "support.example", SourceQuality.PRIMARY),

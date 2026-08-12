@@ -61,7 +61,24 @@ def validate_source_urls(
 
 def _source_key(document: EvidenceDocument) -> str:
     host = (urlsplit(str(document.canonical_url)).hostname or "").lower()
-    return host.removeprefix("www.")
+    host = host.removeprefix("www.").rstrip(".")
+    labels = host.split(".")
+    if len(labels) <= 2 or all(part.isdigit() for part in labels):
+        return host
+    compound_suffixes = {
+        "ac.uk",
+        "co.jp",
+        "co.uk",
+        "com.au",
+        "com.cn",
+        "edu.cn",
+        "gov.cn",
+        "net.cn",
+        "org.cn",
+        "org.uk",
+    }
+    suffix = ".".join(labels[-2:])
+    return ".".join(labels[-3:]) if suffix in compound_suffixes else suffix
 
 
 def _stance_strength(
