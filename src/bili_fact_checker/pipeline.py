@@ -27,6 +27,7 @@ def run_pipeline(
     lang: str = "zh-CN",
     asr: bool = True,
     transcript_file: str | None = None,
+    page: int = 1,
     log: LogFn | None = None,
 ) -> dict[str, Any]:
     tasks = tasks or ["summary", "verify"]
@@ -36,10 +37,14 @@ def run_pipeline(
         _log(f"ingest: loading external transcript {transcript_file}…")
         from bili_fact_checker.ingest import load_transcript_file
 
-        transcript = load_transcript_file(settings, url_or_bvid, transcript_file)
+        transcript = load_transcript_file(
+            settings, url_or_bvid, transcript_file, page=page
+        )
     else:
         _log("ingest: fetching transcript…")
-        transcript = fetch_transcript(settings, url_or_bvid, lang=lang, asr=asr)
+        transcript = fetch_transcript(
+            settings, url_or_bvid, lang=lang, asr=asr, page=page
+        )
     _log(f"ingest: {transcript.bvid} · {transcript.title} · {transcript.source} · {len(transcript.text)} chars")
 
     summary_text: str | None = None

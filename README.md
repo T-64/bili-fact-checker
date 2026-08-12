@@ -119,6 +119,9 @@ bili-fact-checker subtitle "BVxxxxxxxx" -o out.srt  # 只导出字幕
 bili-fact-checker summarize "BVxxxxxxxx"
 bili-fact-checker verify "BVxxxxxxxx"
 
+# 多 P 视频选择第二个分 P
+bili-fact-checker run "BVxxxxxxxx" --page 2
+
 # 强制不用本机 ASR（没有 CC 就会报错并提示 --transcript）
 bili-fact-checker run "BVxxxxxxxx" --no-asr
 

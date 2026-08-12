@@ -35,6 +35,8 @@ class Transcript:
     cid: str
     source: str  # cc | asr
     language: str
+    page: int = 1
+    part_title: str = ""
     segments: list[Segment] = field(default_factory=list)
 
     def __post_init__(self) -> None:
@@ -54,6 +56,8 @@ class Transcript:
             "cid": self.cid,
             "source": self.source,
             "language": self.language,
+            "page": self.page,
+            "part_title": self.part_title,
             "segments": [s.to_dict() for s in self.segments],
             "text": self.text,
         }
@@ -94,7 +98,22 @@ def _api_get(settings: Settings, url: str, cookie: bool = False) -> dict[str, An
     return get_json(url, proxy=settings.proxy, headers=headers or None)
 
 
-def fetch_video_meta(settings: Settings, bvid: str) -> tuple[str, str, str]:
+@dataclass(frozen=True)
+class VideoPart:
+    page: int
+    cid: str
+    title: str
+
+
+@dataclass(frozen=True)
+class VideoMetadata:
+    bvid: str
+    aid: str
+    title: str
+    parts: list[VideoPart]
+
+
+def fetch_video_info(settings: Settings, bvid: str) -> VideoMetadata:
     data = _api_get(
         settings,
         f"https://api.bilibili.com/x/web-interface/view?bvid={bvid}",
@@ -103,7 +122,47 @@ def fetch_video_meta(settings: Settings, bvid: str) -> tuple[str, str, str]:
     if data.get("code") != 0:
         raise RuntimeError(f"获取视频信息失败: {data.get('message', 'unknown')}")
     info = data["data"]
-    return str(info["aid"]), str(info["cid"]), str(info["title"])
+    parts = [
+        VideoPart(
+            page=int(item.get("page") or index),
+            cid=str(item.get("cid") or ""),
+            title=str(item.get("part") or f"P{index}"),
+        )
+        for index, item in enumerate(info.get("pages") or [], start=1)
+        if str(item.get("cid") or "")
+    ]
+    if not parts:
+        parts = [
+            VideoPart(
+                page=1,
+                cid=str(info["cid"]),
+                title=str(info.get("title") or "P1"),
+            )
+        ]
+    return VideoMetadata(
+        bvid=bvid,
+        aid=str(info["aid"]),
+        title=str(info["title"]),
+        parts=parts,
+    )
+
+
+def select_video_part(metadata: VideoMetadata, page: int) -> VideoPart:
+    for part in metadata.parts:
+        if part.page == page:
+            return part
+    available = ", ".join(f"P{part.page}" for part in metadata.parts)
+    raise ValueError(f"视频没有 P{page}；可选分 P：{available}")
+
+
+def fetch_video_meta(
+    settings: Settings, bvid: str, *, page: int = 1
+) -> tuple[str, str, str]:
+    """Backward-compatible tuple API for the selected video part."""
+
+    metadata = fetch_video_info(settings, bvid)
+    part = select_video_part(metadata, page)
+    return metadata.aid, part.cid, metadata.title
 
 
 def check_bili_login(settings: Settings) -> tuple[bool, str]:
@@ -170,10 +229,15 @@ def _download_cc_segments(settings: Settings, subtitle_url: str) -> list[Segment
     return segs
 
 
-def whisper_transcribe(settings: Settings, bvid: str, language: str = "auto") -> list[Segment]:
-    """Download audio via yt-dlp, transcribe with faster-whisper."""
-    audio_path = os.path.join(tempfile.gettempdir(), f"{bvid}.m4a")
-    cmd = [
+def _audio_download_command(
+    settings: Settings,
+    bvid: str,
+    audio_path: str,
+    *,
+    page: int = 1,
+) -> list[str]:
+    video_url = f"https://www.bilibili.com/video/{bvid}?p={page}"
+    command = [
         "yt-dlp",
         "-f",
         "bestaudio",
@@ -182,12 +246,25 @@ def whisper_transcribe(settings: Settings, bvid: str, language: str = "auto") ->
         "m4a",
         "-o",
         audio_path,
-        f"https://www.bilibili.com/video/{bvid}",
-        "--proxy",
-        settings.proxy,
+        video_url,
     ]
+    if settings.proxy:
+        command.extend(["--proxy", settings.proxy])
     if settings.cookie_file.exists():
-        cmd.extend(["--cookies", str(settings.cookie_file)])
+        command.extend(["--cookies", str(settings.cookie_file)])
+    return command
+
+
+def whisper_transcribe(
+    settings: Settings,
+    bvid: str,
+    language: str = "auto",
+    *,
+    page: int = 1,
+) -> list[Segment]:
+    """Download audio via yt-dlp, transcribe with faster-whisper."""
+    audio_path = os.path.join(tempfile.gettempdir(), f"{bvid}-p{page}.m4a")
+    cmd = _audio_download_command(settings, bvid, audio_path, page=page)
 
     subprocess.run(cmd, check=True, capture_output=True)
 
@@ -273,6 +350,8 @@ def load_transcript_file(
     settings: Settings,
     url_or_bvid: str,
     transcript_path: str | Path,
+    *,
+    page: int = 1,
 ) -> Transcript:
     """Use an external transcript (e.g. from VideoCaptioner) instead of ASR."""
     path = Path(transcript_path)
@@ -280,12 +359,20 @@ def load_transcript_file(
         raise FileNotFoundError(f"字幕文件不存在: {path}")
 
     bvid = extract_bvid(url_or_bvid)
-    aid, cid, title = ("", "", bvid)
+    aid, cid, title, part_title = ("", "", bvid, "")
     if settings.sessdata:
         try:
-            aid, cid, title = fetch_video_meta(settings, bvid)
+            metadata = fetch_video_info(settings, bvid)
         except Exception:
             pass
+        else:
+            part = select_video_part(metadata, page)
+            aid, cid, title, part_title = (
+                metadata.aid,
+                part.cid,
+                metadata.title,
+                part.title,
+            )
 
     raw = path.read_text(encoding="utf-8")
     suffix = path.suffix.lower()
@@ -321,6 +408,8 @@ def load_transcript_file(
         cid=cid,
         source="file",
         language="external",
+        page=page,
+        part_title=part_title,
         segments=segs,
     )
 
@@ -331,6 +420,7 @@ def fetch_transcript(
     *,
     lang: str = "zh-CN",
     asr: bool = True,
+    page: int = 1,
 ) -> Transcript:
     if not settings.sessdata:
         raise RuntimeError(
@@ -338,7 +428,9 @@ def fetch_transcript(
         )
 
     bvid = extract_bvid(url_or_bvid)
-    aid, cid, title = fetch_video_meta(settings, bvid)
+    metadata = fetch_video_info(settings, bvid)
+    part = select_video_part(metadata, page)
+    aid, cid, title = metadata.aid, part.cid, metadata.title
     subs, meta = list_subtitles(settings, aid, cid, bvid=bvid)
     target = _pick_subtitle(subs, lang)
 
@@ -351,6 +443,8 @@ def fetch_transcript(
             cid=cid,
             source="cc",
             language=str(target.get("lan", lang)),
+            page=part.page,
+            part_title=part.title,
             segments=segs,
         )
 
@@ -386,7 +480,12 @@ def fetch_transcript(
             "     bili-fact-checker run BV... --transcript out.srt"
         )
 
-    segs = whisper_transcribe(settings, bvid, language="zh" if "zh" in lang else "auto")
+    segs = whisper_transcribe(
+        settings,
+        bvid,
+        language="zh" if "zh" in lang else "auto",
+        page=part.page,
+    )
     return Transcript(
         bvid=bvid,
         title=title,
@@ -394,5 +493,7 @@ def fetch_transcript(
         cid=cid,
         source="asr",
         language=lang,
+        page=part.page,
+        part_title=part.title,
         segments=segs,
     )

@@ -9,7 +9,13 @@ from pathlib import Path
 
 from bili_fact_checker import __version__
 from bili_fact_checker.config import Settings
-from bili_fact_checker.ingest import extract_bvid, fetch_transcript, list_subtitles, fetch_video_meta
+from bili_fact_checker.ingest import (
+    extract_bvid,
+    fetch_transcript,
+    fetch_video_info,
+    list_subtitles,
+    select_video_part,
+)
 from bili_fact_checker.pipeline import run_pipeline
 from bili_fact_checker.report import dumps_json, to_html, to_markdown
 
@@ -23,9 +29,17 @@ def cmd_subtitle(args: argparse.Namespace) -> int:
     if getattr(args, "transcript", None):
         from bili_fact_checker.ingest import load_transcript_file
 
-        tr = load_transcript_file(settings, args.input, args.transcript)
+        tr = load_transcript_file(
+            settings, args.input, args.transcript, page=args.page
+        )
     else:
-        tr = fetch_transcript(settings, args.input, lang=args.lang, asr=args.asr)
+        tr = fetch_transcript(
+            settings,
+            args.input,
+            lang=args.lang,
+            asr=args.asr,
+            page=args.page,
+        )
     out = args.output
     if out:
         path = Path(out)
@@ -46,8 +60,10 @@ def cmd_list(args: argparse.Namespace) -> int:
 
     ok, info = check_bili_login(settings)
     _err(f"bilibili login: {'OK · ' + info if ok else 'NOT LOGGED IN · ' + info}")
-    aid, cid, title = fetch_video_meta(settings, bvid)
-    _err(f"{bvid} · {title}")
+    metadata = fetch_video_info(settings, bvid)
+    part = select_video_part(metadata, args.page)
+    aid, cid, title = metadata.aid, part.cid, metadata.title
+    _err(f"{bvid} · {title} · P{part.page} {part.title}")
     subs, meta = list_subtitles(settings, aid, cid, bvid=bvid)
     if meta.get("need_login_subtitle") and not subs:
         _err("hint: need_login_subtitle=true — refresh SESSDATA to see CC/AI tracks")
@@ -76,6 +92,7 @@ def cmd_run(args: argparse.Namespace, tasks: list[str] | None = None) -> int:
         lang=args.lang,
         asr=args.asr,
         transcript_file=getattr(args, "transcript", None),
+        page=args.page,
         log=_err,
     )
     out_dir = Path(args.output or f"output/{report['video']['bvid']}")
@@ -96,6 +113,12 @@ def build_parser() -> argparse.ArgumentParser:
     common = argparse.ArgumentParser(add_help=False)
     common.add_argument("input", help="BV id or bilibili URL")
     common.add_argument("--lang", default="zh-CN", help="subtitle language preference")
+    common.add_argument(
+        "--page",
+        type=int,
+        default=1,
+        help="video part number for multipart videos (default: 1)",
+    )
     common.add_argument(
         "--asr",
         action="store_true",

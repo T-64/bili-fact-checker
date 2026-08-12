@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import json
 
+import pytest
+
 from bili_fact_checker.evidence.core import aggregate_verdict
 from bili_fact_checker.ingest import extract_bvid
 from bili_fact_checker.models import AtomicClaim, ClaimAnalysis
@@ -86,3 +88,49 @@ def test_chunking_import():
     chunks = _chunk_text("a" * 10000, size=3000, overlap=200)
     assert len(chunks) >= 3
     assert all(len(c) <= 3000 for c in chunks)
+
+
+def test_multipart_video_selection(monkeypatch):
+    from bili_fact_checker.config import Settings
+    from bili_fact_checker.ingest import (
+        fetch_video_info,
+        select_video_part,
+    )
+
+    monkeypatch.setattr(
+        "bili_fact_checker.ingest._api_get",
+        lambda *_args, **_kwargs: {
+            "code": 0,
+            "data": {
+                "aid": 123,
+                "cid": 111,
+                "title": "多 P 测试视频",
+                "pages": [
+                    {"page": 1, "cid": 111, "part": "开篇"},
+                    {"page": 2, "cid": 222, "part": "数据部分"},
+                ],
+            },
+        },
+    )
+    metadata = fetch_video_info(Settings.from_env(), "BV1TEST00001")
+    part = select_video_part(metadata, 2)
+    assert metadata.aid == "123"
+    assert part.cid == "222"
+    assert part.title == "数据部分"
+
+    with pytest.raises(ValueError, match="可选分 P：P1, P2"):
+        select_video_part(metadata, 3)
+
+
+def test_asr_download_targets_selected_part(tmp_path):
+    from bili_fact_checker.config import Settings
+    from bili_fact_checker.ingest import _audio_download_command
+
+    settings = Settings.from_env()
+    command = _audio_download_command(
+        settings,
+        "BV1TEST00001",
+        str(tmp_path / "audio.m4a"),
+        page=2,
+    )
+    assert "https://www.bilibili.com/video/BV1TEST00001?p=2" in command
