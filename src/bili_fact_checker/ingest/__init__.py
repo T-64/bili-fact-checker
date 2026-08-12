@@ -346,6 +346,34 @@ def _parse_srt(content: str) -> list[Segment]:
     return segs
 
 
+def _plain_text_segments(content: str, *, max_chars: int = 500) -> list[Segment]:
+    """Turn un-timed text into bounded segments instead of one huge prompt."""
+
+    units = [
+        " ".join(value.split())
+        for value in re.split(r"(?<=[。！？.!?])\s*|\n+", content)
+        if value.strip()
+    ]
+    pieces: list[str] = []
+    current = ""
+    for unit in units:
+        while len(unit) > max_chars:
+            if current:
+                pieces.append(current)
+                current = ""
+            pieces.append(unit[:max_chars])
+            unit = unit[max_chars:]
+        combined = f"{current} {unit}".strip() if current else unit
+        if current and len(combined) > max_chars:
+            pieces.append(current)
+            current = unit
+        else:
+            current = combined
+    if current:
+        pieces.append(current)
+    return [Segment(start=0.0, end=0.0, text=value) for value in pieces]
+
+
 def load_transcript_file(
     settings: Settings,
     url_or_bvid: str,
@@ -394,9 +422,7 @@ def load_transcript_file(
     elif suffix == ".srt":
         segs = _parse_srt(raw)
     else:
-        # plain text → one segment
-        text = " ".join(raw.split())
-        segs = [Segment(start=0.0, end=0.0, text=text)] if text else []
+        segs = _plain_text_segments(raw)
 
     if not segs:
         raise RuntimeError(f"未能从 {path} 解析出字幕内容")

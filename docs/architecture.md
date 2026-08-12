@@ -78,8 +78,9 @@ documents and retained excerpts can enter evidence aggregation.
 ## Domain objects
 
 - `TranscriptSegment`: stable ID, start/end seconds, exact text.
-- `AtomicClaim`: normalized claim, exact quote, anchor segment IDs, checkability
-  rationale, named entities and temporal context.
+- `AtomicClaim`: normalized claim, exact quote, all matching anchor segment IDs
+  and occurrence timestamps, checkability rationale, named entities and
+  temporal context.
 - `SearchPlan`: claim ID and recorded Chinese/English queries.
 - `SearchCandidate`: provider/query, direct URL, title, snippet, publication
   time, retrieval time and raw reference; used only for discovery.

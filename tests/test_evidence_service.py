@@ -4,7 +4,7 @@ from dataclasses import replace
 
 from bili_fact_checker.config import Settings
 from bili_fact_checker.evidence.fetch import FetchedPage, PageFetchError
-from bili_fact_checker.evidence.service import EvidenceService
+from bili_fact_checker.evidence.service import EvidenceService, build_search_queries
 from bili_fact_checker.models import (
     AtomicClaim,
     EvidenceAssessment,
@@ -130,6 +130,14 @@ def supporting_assessor(_settings, _claim, excerpts):
         )
         for item in excerpts
     ]
+
+
+def test_query_plan_uses_primary_source_probe_before_english_fallback():
+    queries = build_search_queries(claim(), limit=3)
+
+    assert [item.language for item in queries] == ["zh", "zh", "en"]
+    assert "官方 原始来源" in queries[1].text
+    assert "世界卫生组织" in queries[1].text
 
 
 def test_two_fetched_independent_sources_can_reach_supported():

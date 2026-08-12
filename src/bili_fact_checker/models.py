@@ -10,7 +10,14 @@ from datetime import datetime, timezone
 from enum import StrEnum
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, HttpUrl, field_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    HttpUrl,
+    field_validator,
+    model_validator,
+)
 
 
 def utc_now() -> datetime:
@@ -96,9 +103,20 @@ class AtomicClaim(StrictModel):
     quote: str = Field(min_length=1)
     anchor_segment_ids: list[str] = Field(min_length=1)
     timestamp_sec: int = Field(ge=0)
+    timestamps_sec: list[int] = Field(default_factory=list)
     checkability_reason: str = ""
     entities: list[str] = Field(default_factory=list)
     temporal_context: str = ""
+
+    @model_validator(mode="after")
+    def normalize_timestamps(self) -> "AtomicClaim":
+        if any(value < 0 for value in self.timestamps_sec):
+            raise ValueError("claim timestamps cannot be negative")
+        values = {self.timestamp_sec}
+        values.update(self.timestamps_sec)
+        self.timestamps_sec = sorted(values)
+        self.timestamp_sec = self.timestamps_sec[0]
+        return self
 
 
 class SearchQuery(StrictModel):
