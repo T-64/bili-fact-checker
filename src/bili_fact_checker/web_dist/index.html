@@ -1,0 +1,165 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="color-scheme" content="light">
+  <title>证据台 · B站口播核查</title>
+  <style>
+    :root {
+      --paper:#f7f4ed; --sheet:#fffdf8; --ink:#17243a; --muted:#667080;
+      --line:#d9d5cb; --soft:#ece8df; --red:#b42318; --red-soft:#fff0ec;
+      --green:#237a4b; --green-soft:#edf8f0; --blue:#315f91; --blue-soft:#edf4fb;
+      --amber:#9a5b05; --amber-soft:#fff5df; --shadow:0 12px 34px rgba(23,36,58,.07);
+    }
+    *{box-sizing:border-box} html{scroll-behavior:smooth}
+    body{margin:0;background:var(--paper);color:var(--ink);font:15px/1.55 ui-sans-serif,system-ui,-apple-system,"Segoe UI","Noto Sans SC",sans-serif}
+    button,input,select{font:inherit} button{cursor:pointer} a{color:var(--blue)}
+    .app{min-height:100vh;display:grid;grid-template-columns:244px minmax(520px,1fr) 284px}
+    .side,.audit{position:sticky;top:0;height:100vh;overflow:auto;background:rgba(255,253,248,.9)}
+    .side{border-right:1px solid var(--line);padding:24px 18px}.audit{border-left:1px solid var(--line);padding:24px 18px}
+    .brand{display:flex;gap:12px;align-items:center;padding-bottom:20px;border-bottom:1px solid var(--line)}
+    .seal{width:42px;height:42px;display:grid;place-items:center;border:2px solid var(--red);color:var(--red);border-radius:50% 50% 44% 44%;font:700 20px/1 ui-serif,Georgia,serif}
+    .brand h1{font:700 24px/1.1 ui-serif,"Noto Serif SC",Georgia,serif;margin:0;letter-spacing:.08em}.brand small{color:var(--muted)}
+    .new-button,.primary{width:100%;border:1px solid var(--red);background:var(--red);color:#fff;border-radius:6px;padding:10px 14px;font-weight:700}
+    .new-button{margin:18px 0}.primary:hover,.new-button:hover{background:#971e15}.primary:disabled{opacity:.55;cursor:not-allowed}
+    .section-label{margin:20px 0 10px;font-size:12px;font-weight:800;letter-spacing:.1em;color:var(--muted);text-transform:uppercase}
+    .provider{border:1px solid var(--line);background:var(--sheet);padding:12px;border-radius:6px}
+    .provider-row{display:flex;justify-content:space-between;gap:8px;margin:6px 0}.dot{width:8px;height:8px;border-radius:50%;display:inline-block;margin-right:7px;background:var(--green)}
+    .provider .hint{font-size:12px;color:var(--muted);margin-top:8px}.history{display:grid;gap:7px}
+    .job{width:100%;text-align:left;border:1px solid transparent;background:transparent;border-radius:5px;padding:9px;color:var(--ink)}
+    .job:hover,.job.active{background:var(--sheet);border-color:var(--line)}.job-top{display:flex;justify-content:space-between;gap:8px}.job-title{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:145px}.job-meta{font-size:12px;color:var(--muted);margin-top:3px}
+    .main{padding:26px clamp(22px,4vw,62px) 80px;min-width:0}.topline{display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid var(--line);padding-bottom:15px;margin-bottom:22px}
+    .topline h2{font:700 22px/1.2 ui-serif,"Noto Serif SC",Georgia,serif;margin:0}.ghost{border:1px solid var(--line);background:var(--sheet);color:var(--ink);border-radius:5px;padding:7px 10px}
+    .composer{background:var(--sheet);border:1px solid var(--line);box-shadow:var(--shadow);padding:20px;border-radius:8px}
+    label{display:block;font-size:13px;font-weight:700;margin-bottom:6px}.input-row{display:grid;grid-template-columns:1fr 94px;gap:10px}
+    input[type=text],input[type=password],input[type=number]{width:100%;border:1px solid #c7c4bc;background:#fff;padding:10px 11px;border-radius:5px;color:var(--ink)}
+    input:focus{outline:2px solid rgba(49,95,145,.22);border-color:var(--blue)}
+    .presets{display:grid;grid-template-columns:repeat(3,1fr);gap:9px;margin:16px 0}.preset{position:relative}.preset input{position:absolute;opacity:0}.preset label{height:100%;border:1px solid var(--line);border-radius:6px;padding:11px;background:#fff;cursor:pointer}.preset input:checked+label{border-color:var(--red);background:var(--red-soft)}.preset b{display:block}.preset small{color:var(--muted)}
+    .composer-foot{display:flex;align-items:end;justify-content:space-between;gap:16px}.checks{display:flex;gap:16px;flex-wrap:wrap;color:var(--muted);font-size:13px}.checks label{font-weight:500;margin:0}
+    .budget{text-align:right;color:var(--muted);font-size:12px}.budget strong{color:var(--ink);font-size:14px}.primary{width:auto;min-width:150px;margin-top:7px}
+    .notice{margin:15px 0 0;padding:10px 12px;background:var(--amber-soft);border-left:3px solid var(--amber);font-size:13px}.hidden{display:none!important}
+    .report-head{margin-top:30px;border-bottom:1px solid var(--line);padding-bottom:16px}.eyebrow{color:var(--green);font-size:12px;font-weight:800;letter-spacing:.08em}.report-head h2{font:700 clamp(23px,3vw,34px)/1.25 ui-serif,"Noto Serif SC",Georgia,serif;margin:5px 0}.report-meta{color:var(--muted);font-size:13px}
+    .stats{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin:18px 0}.stat{border:1px solid var(--line);background:var(--sheet);padding:10px 12px;border-radius:5px}.stat strong{display:block;font-size:22px}.stat.supported strong{color:var(--green)}.stat.refuted strong{color:var(--red)}.stat.disputed strong{color:var(--blue)}.stat.insufficient strong{color:var(--amber)}
+    .report-grid{display:grid;grid-template-columns:230px minmax(0,1fr);gap:14px}.claim-list{border:1px solid var(--line);background:var(--sheet);align-self:start}.claim-tab{display:grid;grid-template-columns:24px 1fr;gap:8px;width:100%;padding:12px;border:0;border-bottom:1px solid var(--soft);background:transparent;text-align:left;color:var(--ink)}.claim-tab:hover,.claim-tab.active{background:#f4f0e7}.claim-tab.active{box-shadow:inset 3px 0 var(--red)}.claim-tab small{display:block;color:var(--muted);margin-top:3px}.claim-detail{border:1px solid var(--line);background:var(--sheet);padding:20px;min-width:0}.verdict-line{display:flex;align-items:center;gap:9px;flex-wrap:wrap}.badge{display:inline-flex;align-items:center;border-radius:99px;padding:3px 8px;font-size:12px;font-weight:800}.supported{background:var(--green-soft);color:var(--green)}.refuted{background:var(--red-soft);color:var(--red)}.disputed{background:var(--blue-soft);color:var(--blue)}.insufficient_evidence{background:var(--amber-soft);color:var(--amber)}
+    .claim-detail h3{font:700 22px/1.35 ui-serif,"Noto Serif SC",Georgia,serif;margin:12px 0}.quote{margin:14px 0;padding:14px 16px;border-left:3px solid var(--red);background:#fbf8f1;font:17px/1.65 ui-serif,"Noto Serif SC",Georgia,serif}.rule{font-size:13px;color:var(--muted);border-bottom:1px solid var(--soft);padding-bottom:15px}
+    .evidence-group{margin-top:18px}.evidence-group h4{margin:0 0 9px;font-size:13px;letter-spacing:.04em}.evidence-card{border:1px solid var(--line);padding:13px;margin:8px 0;border-radius:5px}.source{display:flex;justify-content:space-between;gap:10px;font-size:13px}.source a{font-weight:700;word-break:break-word}.excerpt{margin:10px 0 0;color:#364152}.empty{padding:12px;border:1px dashed var(--line);color:var(--muted);font-size:13px}
+    .audit h3{font:700 18px/1.2 ui-serif,"Noto Serif SC",Georgia,serif;margin:0 0 15px}.stage{position:relative;border-left:1px solid var(--line);padding:0 0 18px 18px;margin-left:5px}.stage:before{content:"";position:absolute;left:-5px;top:2px;width:9px;height:9px;border-radius:50%;background:var(--green);box-shadow:0 0 0 3px var(--sheet)}.stage.warning:before{background:var(--amber)}.stage.error:before{background:var(--red)}.stage b{display:block}.stage small,.audit-card{color:var(--muted);font-size:12px}.audit-card{border:1px solid var(--line);padding:12px;border-radius:5px;margin-top:12px;background:var(--sheet)}
+    .progress-actions{display:flex;gap:8px;margin:12px 0}.danger{border:1px solid #e6b5ae;background:#fff;color:var(--red);padding:7px 10px;border-radius:5px}.token-modal{position:fixed;inset:0;background:rgba(23,36,58,.45);display:grid;place-items:center;padding:20px;z-index:10}.token-card{width:min(440px,100%);background:var(--sheet);padding:24px;border:1px solid var(--line);box-shadow:var(--shadow)}.token-card h2{margin-top:0;font-family:ui-serif,Georgia,serif}.token-card .primary{margin-left:auto;display:block}
+    .mobile-audit{display:none}.skeleton{height:120px;background:linear-gradient(90deg,#efebe3 25%,#f7f4ed 45%,#efebe3 65%);background-size:300% 100%;animation:load 1.4s infinite}@keyframes load{to{background-position:-300% 0}}
+    @media(max-width:1100px){.app{grid-template-columns:220px 1fr}.audit{display:none}.mobile-audit{display:block;margin-top:20px}.main{padding-inline:24px}}
+    @media(max-width:760px){.app{display:block}.side{position:static;height:auto;border-right:0;border-bottom:1px solid var(--line);padding:16px}.brand{padding-bottom:12px}.new-button{width:auto;float:right;margin:-49px 0 0}.provider,.section-label,.history{display:none}.main{padding:18px 14px 60px}.topline{margin-bottom:15px}.composer{padding:15px}.input-row{grid-template-columns:1fr 74px}.presets{grid-template-columns:1fr}.composer-foot{display:block}.budget{text-align:left;margin-top:12px}.primary{width:100%}.stats{grid-template-columns:repeat(2,1fr)}.report-grid{display:block}.claim-list{display:flex;overflow:auto;margin-bottom:10px}.claim-tab{min-width:190px;border-bottom:0;border-right:1px solid var(--soft)}.claim-detail{padding:15px}.source{display:block}.audit{position:static;height:auto}}
+  </style>
+</head>
+<body>
+<div class="app">
+  <aside class="side">
+    <div class="brand"><div class="seal">证</div><div><h1>证据台</h1><small>bili-fact-checker</small></div></div>
+    <button class="new-button" id="newJob">＋ 新建核查</button>
+    <div class="section-label">提供商状态</div>
+    <div class="provider" id="provider"><div class="skeleton"></div></div>
+    <div class="section-label">最近任务</div>
+    <div class="history" id="history"><span class="job-meta">正在读取…</span></div>
+  </aside>
+
+  <main class="main">
+    <header class="topline"><h2 id="viewTitle">新建核查</h2><button class="ghost" id="refresh">刷新状态</button></header>
+    <section class="composer" id="composer">
+      <form id="analyzeForm">
+        <div class="input-row">
+          <div><label for="bvid">Bilibili 视频链接或 BV 号</label><input id="bvid" type="text" required maxlength="300" placeholder="https://www.bilibili.com/video/BV…"></div>
+          <div><label for="page">分 P</label><input id="page" type="number" min="1" max="10000" value="1"></div>
+        </div>
+        <div class="presets" aria-label="核查模式">
+          <div class="preset"><input id="fast" name="preset" type="radio" value="fast"><label for="fast"><b>快速审阅</b><small>最多 6 条声明，每条 1 次搜索</small></label></div>
+          <div class="preset"><input id="balanced" name="preset" type="radio" value="balanced" checked><label for="balanced"><b>均衡核查</b><small>适合大多数日常视频</small></label></div>
+          <div class="preset"><input id="strict" name="preset" type="radio" value="strict"><label for="strict"><b>严格核查</b><small>用满配置预算，不降低证据门槛</small></label></div>
+        </div>
+        <div class="composer-foot">
+          <div><div class="checks"><label><input id="summary" type="checkbox" checked> 生成内容总结</label><label><input id="asr" type="checkbox" checked> 无字幕时尝试本地 ASR</label></div><div class="budget" id="budget">读取搜索预算…</div></div>
+          <button class="primary" id="start" type="submit">开始核查 →</button>
+        </div>
+      </form>
+      <div class="notice hidden" id="notice"></div>
+    </section>
+
+    <section id="report" class="hidden"></section>
+    <section class="mobile-audit hidden" id="mobileAudit"></section>
+  </main>
+
+  <aside class="audit"><h3>执行记录</h3><div id="auditContent"><div class="audit-card">提交任务后，这里会显示字幕、声明、检索、抓页和证据判断的真实进度。</div></div></aside>
+</div>
+
+<div class="token-modal hidden" id="tokenModal">
+  <div class="token-card"><h2>需要访问令牌</h2><p>此服务启用了 Bearer 认证。令牌只保存在当前浏览器会话，不会写入报告。</p><label for="token">BFC_API_TOKEN</label><input id="token" type="password" autocomplete="current-password"><button class="primary" id="saveToken">继续</button></div>
+</div>
+
+<script>
+  const state={status:null,jobs:[],active:null,report:null,claim:0,timer:null};
+  const $=id=>document.getElementById(id);
+  const esc=value=>String(value??'').replace(/[&<>'"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[c]));
+  const token=()=>sessionStorage.getItem('bfc_token')||'';
+  async function api(path,options={}){
+    const headers=new Headers(options.headers||{});if(token())headers.set('Authorization','Bearer '+token());
+    if(options.body&&!headers.has('Content-Type'))headers.set('Content-Type','application/json');
+    const response=await fetch(path,{...options,headers});
+    if(response.status===401){$('tokenModal').classList.remove('hidden');throw new Error('需要访问令牌');}
+    const data=await response.json().catch(()=>({detail:response.statusText}));if(!response.ok)throw new Error(data.detail||'请求失败');return data;
+  }
+  function showNotice(message,error=false){$('notice').textContent=message;$('notice').classList.toggle('hidden',!message);$('notice').style.borderColor=error?'var(--red)':'var(--amber)';}
+  function verdictLabel(value){return({supported:'支持',refuted:'反驳',disputed:'存在争议',insufficient_evidence:'证据不足'})[value]||value;}
+  function statusLabel(value){return({queued:'排队中',running:'运行中',cancelling:'取消中',cancelled:'已取消',done:'已完成',error:'失败',interrupted:'已中断'})[value]||value;}
+  function renderProvider(){
+    const s=state.status;if(!s){$('provider').innerHTML='<span class="job-meta">状态不可用</span>';return;}
+    const search=s.search_provider==='none'?'不可用':s.search_provider;
+    $('provider').innerHTML=`<div class="provider-row"><span><i class="dot"></i>语言模型</span><b>${esc(s.llm_provider)}</b></div><div class="provider-row"><span><i class="dot" style="background:${s.search_provider==='none'?'var(--amber)':'var(--green)'}"></i>网页搜索</span><b>${esc(search)}</b></div><div class="hint">${s.search_native_to_llm?'复用同一个 AI 账号，不需要额外搜索 key。':'使用独立或外部搜索配置。'}<br>能力检测没有发起付费探测。</div>`;
+  }
+  function renderBudget(){const p=document.querySelector('input[name=preset]:checked').value;const preset=state.status?.presets?.[p];$('budget').innerHTML=preset?`最多 <strong>${preset.max_claims}</strong> 条声明 · <strong>${preset.max_searches_per_run}</strong> 次搜索调用<br>证据达标会提前停止，缓存命中不重复调用`:'预算以服务端配置为准';}
+  function renderHistory(){
+    $('history').innerHTML=state.jobs.length?state.jobs.map(job=>`<button class="job ${state.active?.id===job.id?'active':''}" data-job="${job.id}"><span class="job-top"><span class="job-title">${esc(job.request?.bvid||job.id)}</span><b>${esc(statusLabel(job.status))}</b></span><span class="job-meta">P${job.request?.page||1} · ${esc(job.created_at?.replace('T',' ').slice(0,16)||'')}</span></button>`).join(''):'<span class="job-meta">还没有任务。</span>';
+    document.querySelectorAll('[data-job]').forEach(button=>button.onclick=()=>loadJob(button.dataset.job));
+  }
+  function renderAudit(job,report){
+    const logs=job?.logs||[];const events=report?.events||[];const stages=logs.map(line=>{const [name,...rest]=line.split(':');return `<div class="stage"><b>${esc(name)}</b><small>${esc(rest.join(':').trim())}</small></div>`;}).join('');
+    const eventRows=events.slice(-10).map(e=>`<div class="stage ${esc(e.level)}"><b>${esc(e.code)}</b><small>${esc(e.message)}</small></div>`).join('');
+    const usage=(report?.run?.search_usage||[]).reduce((a,x)=>({calls:a.calls+(x.request_count||0),results:a.results+(x.result_count||0),billable:a.billable+(x.billable_uses||0)}),{calls:0,results:0,billable:0});
+    const actions=job&&['running','queued','cancelling'].includes(job.status)?`<div class="progress-actions"><button class="danger" id="cancelJob">取消任务</button></div>`:job&&['error','cancelled','interrupted'].includes(job.status)?`<div class="progress-actions"><button class="ghost" id="retryJob">重试原任务</button></div>`:'';
+    const html=`${job?`<div class="audit-card"><b>${esc(statusLabel(job.status))}</b><br>ID: ${esc(job.id)} · 阶段 ${esc(job.stage)}${job.error?`<br><span style="color:var(--red)">${esc(job.error)}</span>`:''}</div>`:''}${actions}${stages||'<div class="audit-card">等待执行记录…</div>'}${eventRows}${report?`<div class="audit-card"><b>资源使用</b><br>实际搜索调用 ${usage.calls}<br>返回候选 ${usage.results}<br>已报告计费使用 ${usage.billable}</div>`:''}`;
+    $('auditContent').innerHTML=html;$('mobileAudit').innerHTML='<h3>执行记录</h3>'+html;$('mobileAudit').classList.toggle('hidden',!job);
+    if($('cancelJob'))$('cancelJob').onclick=cancelActive;if($('retryJob'))$('retryJob').onclick=retryActive;
+  }
+  function evidenceCards(item,stance){
+    const docs=Object.fromEntries((item.documents||[]).map(x=>[x.id,x]));const excerpts=Object.fromEntries((item.excerpts||[]).map(x=>[x.id,x]));const assessments=Object.fromEntries((item.assessments||[]).map(x=>[x.excerpt_id,x]));
+    const ids=(item.verdict?.[stance==='supports'?'supporting_excerpt_ids':stance==='refutes'?'refuting_excerpt_ids':'context_excerpt_ids']||[]);
+    if(!ids.length)return '<div class="empty">没有这一方向的已验证引文。</div>';
+    return ids.map(id=>{const ex=excerpts[id]||{};const doc=docs[ex.document_id]||{};const a=assessments[id]||{};return `<article class="evidence-card"><div class="source"><a href="${esc(doc.url||'#')}" target="_blank" rel="noopener noreferrer">${esc(doc.title||doc.url||'来源页面')} ↗</a><span>${esc(doc.publisher||'发布者未知')} · ${esc(doc.published_at||'日期未知')} · ${esc(doc.source_quality||'unknown')}</span></div><p class="excerpt">“${esc(ex.text)}”</p><small>${esc(a.rationale||'')}</small></article>`;}).join('');
+  }
+  function renderClaim(index){
+    state.claim=index;const item=state.report.claims[index];if(!item)return;const c=item.claim,v=item.verdict;const times=(c.timestamps_sec||[c.timestamp_sec]).map(t=>`<a href="${esc(state.report.video.url)}${state.report.video.url.includes('?')?'&':'?'}t=${Number(t)}" target="_blank" rel="noopener">${Number(t)}s ↗</a>`).join('、');
+    $('claimDetail').innerHTML=`<div class="verdict-line"><span class="badge ${esc(v.verdict)}">${esc(verdictLabel(v.verdict))}</span><span>证据强度：<b>${esc(v.strength)}</b></span>${v.needs_human_review?'<span class="badge disputed">需要人工复核</span>':''}</div><h3>${esc(c.claim_zh)}</h3><blockquote class="quote">“${esc(c.quote)}”<br><small>${times}</small></blockquote><div class="rule"><b>确定性判定依据：</b>${esc(v.reason)}<br>搜索摘要与模型记忆不计入证据；只有下列成功抓取的精确引文参与判定。</div><section class="evidence-group"><h4 style="color:var(--green)">支持证据</h4>${evidenceCards(item,'supports')}</section><section class="evidence-group"><h4 style="color:var(--red)">反驳证据</h4>${evidenceCards(item,'refutes')}</section><section class="evidence-group"><h4 style="color:var(--blue)">背景与语境</h4>${evidenceCards(item,'context')}</section>`;
+    document.querySelectorAll('.claim-tab').forEach((x,i)=>x.classList.toggle('active',i===index));
+  }
+  function renderReport(report){
+    state.report=report;const stats=report.stats||{};const claims=report.claims||[];$('report').classList.remove('hidden');
+    $('report').innerHTML=`<header class="report-head"><span class="eyebrow">核查报告 · Schema ${esc(report.schema_version)}</span><h2>${esc(report.video.title)}</h2><div class="report-meta">${esc(report.video.bvid)} · P${report.video.page}${report.video.part_title?' · '+esc(report.video.part_title):''} · ${esc(report.run.generated_at)}</div></header><div class="stats"><div class="stat supported">支持<strong>${stats.supported||0}</strong></div><div class="stat refuted">反驳<strong>${stats.refuted||0}</strong></div><div class="stat disputed">争议<strong>${stats.disputed||0}</strong></div><div class="stat insufficient">证据不足<strong>${stats.insufficient_evidence||0}</strong></div></div>${report.summary?`<details><summary><b>内容总结</b></summary><p>${esc(report.summary).replace(/\n/g,'<br>')}</p></details>`:''}<div class="report-grid"><nav class="claim-list">${claims.map((x,i)=>`<button class="claim-tab ${i===0?'active':''}" data-claim="${i}"><b>${i+1}</b><span>${esc(x.claim.claim_zh)}<small>${esc(verdictLabel(x.verdict.verdict))}</small></span></button>`).join('')||'<div class="empty">没有提取到可核查声明。</div>'}</nav><article class="claim-detail" id="claimDetail"></article></div>`;
+    document.querySelectorAll('[data-claim]').forEach(x=>x.onclick=()=>renderClaim(Number(x.dataset.claim)));if(claims.length)renderClaim(0);
+  }
+  async function refreshStatus(){
+    try{state.status=await api('/v1/status');renderProvider();renderBudget();const data=await api('/v1/jobs?limit=30');state.jobs=data.jobs||[];renderHistory();showNotice(state.status.ready?'':(state.status.checks||[]).filter(x=>x.status==='error').map(x=>x.message).join('；'),true);}catch(error){if(error.message!=='需要访问令牌')showNotice(error.message,true);}
+  }
+  async function loadJob(id){
+    clearTimeout(state.timer);try{const job=await api('/v1/jobs/'+id);state.active=job;renderHistory();renderAudit(job,state.report?.video?.bvid===job.request?.bvid?state.report:null);$('viewTitle').textContent='任务 '+job.id;
+      if(job.status==='done'){const report=await api(job.report_url);renderReport(report);renderAudit(job,report);$('composer').classList.add('hidden');}
+      else if(['queued','running','cancelling'].includes(job.status)){state.timer=setTimeout(()=>loadJob(id),1200);}else{$('composer').classList.remove('hidden');showNotice(job.error||statusLabel(job.status),true);}
+    }catch(error){showNotice(error.message,true);}
+  }
+  async function cancelActive(){if(!state.active)return;await api(`/v1/jobs/${state.active.id}/cancel`,{method:'POST'});loadJob(state.active.id);}
+  async function retryActive(){if(!state.active)return;const job=await api(`/v1/jobs/${state.active.id}/retry`,{method:'POST'});loadJob(job.id);}
+  $('analyzeForm').onsubmit=async event=>{event.preventDefault();showNotice('');$('start').disabled=true;try{const tasks=['verify'];if($('summary').checked)tasks.unshift('summary');const job=await api('/v1/analyze',{method:'POST',body:JSON.stringify({bvid:$('bvid').value.trim(),page:Number($('page').value),preset:document.querySelector('input[name=preset]:checked').value,tasks,asr:$('asr').checked})});await refreshStatus();loadJob(job.id);}catch(error){showNotice(error.message,true);$('start').disabled=false;}};
+  document.querySelectorAll('input[name=preset]').forEach(x=>x.onchange=renderBudget);
+  $('newJob').onclick=()=>{clearTimeout(state.timer);state.active=null;state.report=null;$('viewTitle').textContent='新建核查';$('composer').classList.remove('hidden');$('report').classList.add('hidden');$('mobileAudit').classList.add('hidden');renderAudit(null,null);renderHistory();$('start').disabled=false;showNotice('');};
+  $('refresh').onclick=refreshStatus;$('saveToken').onclick=()=>{sessionStorage.setItem('bfc_token',$('token').value);$('tokenModal').classList.add('hidden');refreshStatus();};
+  refreshStatus();
+</script>
+</body>
+</html>
