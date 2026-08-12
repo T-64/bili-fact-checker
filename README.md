@@ -6,19 +6,21 @@
 BV / 链接
   → 拿字幕（优先官方 CC/AI；没有再本地转写或导入外部字幕）
   → LLM 总结 + 抽声明
-  → Google Fact Check / 网页搜索举证
+  → 复用 AI 提供商的原生搜索发现候选网页
+  → 抓取真实网页并保留精确证据引文
   → report.json / report.md / report.html
 ```
 
-报告里每条声明会标明证据层级，避免把「模型猜测」写成「已核实」：
+报告使用四种保守结论：
 
-| 标签 | 含义 |
+| 结论 | 含义 |
 |---|---|
-| `sourced_factcheck` | 命中 Google Fact Check（ClaimReview） |
-| `sourced_web` | 有网页检索证据 |
-| `model_inference` | 没有外部证据，仅模型推断（只能当线索） |
+| `supported` | 支持证据达到门槛，且无同等级反向证据 |
+| `refuted` | 反驳证据达到门槛，且无同等级支持证据 |
+| `disputed` | 可信的支持和反驳材料同时存在 |
+| `insufficient_evidence` | 没有证据，或证据尚未达到自动裁决门槛 |
 
-输出是**辅助线索**，不是权威裁决。
+搜索摘要和模型记忆永远不算证据。输出是**辅助审阅报告**，不是权威裁决。
 
 ---
 
@@ -44,16 +46,19 @@ export OPENAI_API_BASE='https://api.z.ai/api/paas/v4'   # OpenAI 兼容；可改
 export OPENAI_MODEL='glm-4-flash'
 ```
 
+默认 `SEARCH_PROVIDER=auto`。使用 Z.AI/智谱端点时，核查流程会复用上面
+同一套 API base/key 调用结构化 Web Search，不要求再申请一套搜索服务。
+原生联网搜索可能被供应商单独计费，请在供应商控制台核对规则。
+
 还需要本机有 **`yt-dlp`**、**`ffmpeg`**（无字幕走 ASR 或你手动下音频时用到；有 CC 时字幕链路主要靠 B 站 API）。
 
-建议再配：
+只有高级或自托管场景才需要额外搜索配置：
 
 ```bash
-export GOOGLE_FACTCHECK_API_KEY='...'   # 声明核查 Tier 0
-# 二选一，提升中文声明命中率：
+export SEARCH_PROVIDER=searxng
 export SEARXNG_URL='http://127.0.0.1:8080'
-# 或 export TAVILY_API_KEY='...'
-export HTTPS_PROXY='http://127.0.0.1:7890'  # 国内访问 Google / 部分 API 时常需要
+# 或 SEARCH_PROVIDER=tavily + TAVILY_API_KEY='...'
+# 需要代理时再自行设置 HTTP_PROXY / HTTPS_PROXY；项目没有隐式代理。
 ```
 
 完整变量列表见 [`.env.example`](.env.example)。
@@ -154,6 +159,7 @@ examples/                # 示例报告
 - [yt-dlp](https://github.com/yt-dlp/yt-dlp) — 无字幕时下载音频
 - [OpenAI Whisper](https://github.com/openai/whisper) / [faster-whisper](https://github.com/SYSTRAN/faster-whisper) / [CTranslate2](https://github.com/OpenNMT/CTranslate2) — 本机 ASR
 - [VideoCaptioner](https://github.com/WEIFENG2333/VideoCaptioner) — 可选的外部字幕生成工具（不捆绑进本仓库）
+- [Trafilatura](https://github.com/adbar/trafilatura) — 网页正文和元数据提取
 
 ---
 
@@ -161,4 +167,5 @@ examples/                # 示例报告
 
 MIT。第三方组件遵循各自许可证。
 
-模型与检索都可能出错或过时；请点开源链接人工核对。不要把 `model_inference` 当成已核实事实。
+模型、检索和来源页面都可能出错或过时。请核对视频原话、精确引文和来源页面；
+`insufficient_evidence` 表示系统选择弃权，不表示声明为真或为假。
