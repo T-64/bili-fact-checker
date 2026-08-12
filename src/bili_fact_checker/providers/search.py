@@ -745,12 +745,14 @@ def build_search_provider(
             "open-web search is disabled; only offline lookup is available"
         )
     if requested == "native":
-        if native == "zai":
-            return ZaiSearchProvider(settings, transport=post_transport)
-        if native:
-            return UnavailableSearchProvider(
-                f"native {native} search adapter is planned but not implemented"
-            )
+        native_factories = {
+            "zai": lambda: ZaiSearchProvider(settings, transport=post_transport),
+            "openai": lambda: OpenAISearchProvider(settings, transport=post_transport),
+            "gemini": lambda: GeminiSearchProvider(settings, transport=post_transport),
+            "anthropic": lambda: AnthropicSearchProvider(settings, transport=post_transport),
+        }
+        if native in native_factories:
+            return native_factories[native]()
         return UnavailableSearchProvider(
             "the configured OpenAI-compatible endpoint has no known native search protocol"
         )

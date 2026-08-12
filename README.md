@@ -66,6 +66,12 @@ export SEARXNG_URL='http://127.0.0.1:8080'
 
 完整变量列表见 [`.env.example`](.env.example)。
 
+配置后先运行本地诊断；它只检查配置和文件，**不会调用模型或搜索 API**：
+
+```bash
+bili-fact-checker doctor
+```
+
 ### 2. 本地 Whisper（可选）
 
 多数 B 站视频已有 CC / AI 字幕，**不必装 Whisper**。只有「没字幕」时才会用到本机转写。

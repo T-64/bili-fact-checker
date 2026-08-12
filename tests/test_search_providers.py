@@ -80,6 +80,19 @@ def test_auto_routes_known_native_provider_without_live_probe(base, provider_typ
     assert isinstance(build_search_provider(configured), provider_type)
 
 
+@pytest.mark.parametrize(
+    ("base", "provider_type"),
+    [
+        ("https://api.openai.com/v1", OpenAISearchProvider),
+        ("https://generativelanguage.googleapis.com/v1beta", GeminiSearchProvider),
+        ("https://api.anthropic.com/v1", AnthropicSearchProvider),
+    ],
+)
+def test_explicit_native_routes_every_implemented_adapter(base, provider_type):
+    configured = settings(openai_api_base=base, search_provider="native")
+    assert isinstance(build_search_provider(configured), provider_type)
+
+
 def test_zai_structured_results_are_normalized_and_malformed_urls_rejected():
     calls = []
 
