@@ -38,6 +38,7 @@ class Settings:
     openai_api_key: str
     openai_api_base: str
     openai_model: str
+    llm_provider: str
     search_provider: str
     search_api_key: str
     search_api_base: str
@@ -68,6 +69,9 @@ class Settings:
             openai_api_key=api_key,
             openai_api_base=_env("OPENAI_API_BASE", "https://api.z.ai/api/paas/v4").rstrip("/"),
             openai_model=_env("OPENAI_MODEL", "glm-4-flash"),
+            llm_provider=(
+                _env("BFC_LLM_PROVIDER") or _env("LLM_PROVIDER", "auto")
+            ).lower(),
             search_provider=(
                 _env("BFC_SEARCH_PROVIDER") or _env("SEARCH_PROVIDER", "auto")
             ).lower(),
