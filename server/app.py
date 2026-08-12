@@ -32,6 +32,7 @@ class AnalyzeRequest(BaseModel):
     tasks: list[str] = Field(default_factory=lambda: ["summary", "verify"])
     lang: str = "zh-CN"
     asr: bool = True
+    page: int = Field(default=1, ge=1)
 
 
 @app.get("/health")
@@ -61,6 +62,7 @@ def analyze(req: AnalyzeRequest) -> dict[str, Any]:
                 tasks=req.tasks,
                 lang=req.lang,
                 asr=req.asr,
+                page=req.page,
                 log=log,
             )
             job_dir = JOBS_DIR / job_id

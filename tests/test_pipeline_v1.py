@@ -34,6 +34,8 @@ def test_runtime_pipeline_emits_v1_and_abstains_without_fetched_evidence(
         cid="2",
         source="cc",
         language="zh-CN",
+        page=1,
+        part_title="第一部分",
         segments=[Segment(start=5, end=9, text="该指标在2024年下降了百分之十")],
     )
     monkeypatch.setattr(
@@ -75,4 +77,6 @@ def test_runtime_pipeline_emits_v1_and_abstains_without_fetched_evidence(
     assert report["claims"][0]["excerpts"] == []
     assert report["run"]["search_providers"] == ["fixture"]
     assert report["run"]["search_usage"][0]["request_count"] == 1
+    assert report["video"]["page"] == 1
+    assert report["video"]["part_title"] == "第一部分"
     assert "judgment" not in report["claims"][0]

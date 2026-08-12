@@ -60,6 +60,10 @@ def build_report(
     ]
     bvid = str(transcript.get("bvid") or "")
     source = str(transcript.get("source") or "file")
+    page = int(transcript.get("page") or 1)
+    video_url = f"https://www.bilibili.com/video/{bvid}"
+    if page > 1:
+        video_url += f"?p={page}"
     return AnalysisReport(
         run=RunInfo(
             software_version=__version__,
@@ -71,9 +75,11 @@ def build_report(
         video=VideoInfo(
             bvid=bvid,
             title=str(transcript.get("title") or bvid),
-            url=f"https://www.bilibili.com/video/{bvid}",
+            url=video_url,
             aid=str(transcript.get("aid") or ""),
             cid=str(transcript.get("cid") or ""),
+            page=page,
+            part_title=str(transcript.get("part_title") or ""),
         ),
         transcript=TranscriptInfo(
             source=source,
@@ -109,6 +115,10 @@ def to_markdown(report: AnalysisReport | dict[str, Any]) -> str:
         "",
         f"**视频**: [{video.get('title')}]({video.get('url')})",
         f"**BV**: `{video.get('bvid')}` · Schema: `{data.get('schema_version')}`",
+        (
+            f"**分 P**: P{video.get('page')}"
+            + (f" · {video.get('part_title')}" if video.get("part_title") else "")
+        ),
         f"**生成时间**: {run.get('generated_at')}",
         "",
         f"> {data.get('disclaimer')}",
@@ -265,7 +275,9 @@ main{{max-width:900px;margin:auto;padding:36px 20px 72px}}a{{color:var(--accent)
 </style></head><body><main>
 <h1>B站口播证据核查报告</h1>
 <p><a href="{html.escape(str(video.get('url') or ''))}">{html.escape(str(video.get('title') or ''))}</a>
-· {html.escape(str(video.get('bvid') or ''))}</p>
+· {html.escape(str(video.get('bvid') or ''))}
+· P{html.escape(str(video.get('page') or 1))}
+{('· ' + html.escape(str(video.get('part_title')))) if video.get('part_title') else ''}</p>
 <div class="intro">{html.escape(str(data.get('disclaimer') or ''))}</div>
 <h2>内容总结</h2><div class="intro">{summary or '未生成总结'}</div>
 <h2>声明核查（{len(claims)}）</h2>{''.join(cards) or '<p>没有提取到可核查声明。</p>'}
