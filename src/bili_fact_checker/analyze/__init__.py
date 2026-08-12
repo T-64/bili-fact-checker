@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+from difflib import SequenceMatcher
 from typing import Any
 
 from bili_fact_checker.config import Settings
@@ -70,6 +71,90 @@ def _normalise(value: str) -> str:
     return re.sub(r"[\W_]+", "", value, flags=re.UNICODE).lower()
 
 
+def _claim_signature(value: str) -> tuple[set[str], set[str]]:
+    numbers = set(re.findall(r"\d+(?:\.\d+)?%?", value))
+    polarity_words = {
+        word
+        for word in (
+            "上升",
+            "下降",
+            "增加",
+            "减少",
+            "支持",
+            "反对",
+            "是",
+            "不是",
+            "有",
+            "没有",
+            "高于",
+            "低于",
+        )
+        if word in value
+    }
+    return numbers, polarity_words
+
+
+def _claims_are_near_duplicate(left: str, right: str) -> bool:
+    """Conservative overlap dedupe that keeps different numbers/polarity apart."""
+
+    normalized_left = _normalise(left)
+    normalized_right = _normalise(right)
+    if normalized_left == normalized_right:
+        return True
+    if min(len(normalized_left), len(normalized_right)) < 8:
+        return False
+    if _claim_signature(left) != _claim_signature(right):
+        return False
+    return SequenceMatcher(
+        None, normalized_left, normalized_right, autojunk=False
+    ).ratio() >= 0.94
+
+
+def _merge_claim_occurrence(
+    existing: dict[str, Any],
+    *,
+    anchor_ids: list[str],
+    timestamp: int,
+    entities: list[str],
+) -> None:
+    existing["anchor_segment_ids"] = list(
+        dict.fromkeys([*existing["anchor_segment_ids"], *anchor_ids])
+    )
+    timestamps = {
+        int(existing.get("timestamp_sec") or 0),
+        *(int(value) for value in existing.get("timestamps_sec") or []),
+        timestamp,
+    }
+    existing["timestamps_sec"] = sorted(timestamps)
+    existing["timestamp_sec"] = min(timestamps)
+    existing["entities"] = list(
+        dict.fromkeys([*existing.get("entities", []), *entities])
+    )
+
+
+def _select_claims_across_timeline(
+    claims: list[dict[str, Any]], limit: int
+) -> list[dict[str, Any]]:
+    """Apply a hard cap without selecting only the beginning of a long video."""
+
+    if limit <= 0:
+        return []
+    ordered = sorted(claims, key=lambda item: int(item["timestamp_sec"]))
+    if len(ordered) <= limit:
+        selected = ordered
+    elif limit == 1:
+        selected = [ordered[len(ordered) // 2]]
+    else:
+        indexes = {
+            round(index * (len(ordered) - 1) / (limit - 1))
+            for index in range(limit)
+        }
+        selected = [ordered[index] for index in sorted(indexes)]
+    for index, item in enumerate(selected, start=1):
+        item["id"] = f"claim_{index:04d}"
+    return selected
+
+
 def _validated_anchor(
     item: dict[str, Any], segment_map: dict[str, Segment]
 ) -> tuple[list[str], str] | None:
@@ -83,7 +168,10 @@ def _validated_anchor(
     raw_ids = item.get("anchor_segment_ids") or []
     if not isinstance(raw_ids, list):
         raw_ids = []
-    ids = [str(value) for value in raw_ids if str(value) in segment_map]
+    supplied_ids = [str(value) for value in raw_ids]
+    if supplied_ids and any(value not in segment_map for value in supplied_ids):
+        return None
+    ids = supplied_ids
 
     if not ids and quote:
         normalised_quote = _normalise(quote)
@@ -161,7 +249,6 @@ def extract_claims(settings: Settings, transcript: Transcript) -> list[dict[str,
     chunks = _chunk_segments(transcript)
     segment_map = {segment.id: segment for segment in transcript.segments}
     all_claims: list[dict[str, Any]] = []
-    seen: set[str] = set()
 
     for index, chunk in enumerate(chunks):
         rendered = "\n".join(
@@ -198,15 +285,33 @@ def extract_claims(settings: Settings, transcript: Transcript) -> list[dict[str,
             if not isinstance(item, dict):
                 continue
             zh = str(item.get("claim_zh") or item.get("text") or "").strip()
-            dedupe_key = _normalise(zh)
             anchor = _validated_anchor(item, segment_map)
-            if not zh or not dedupe_key or dedupe_key in seen or not anchor:
+            if not zh or not _normalise(zh) or not anchor:
                 continue
-            seen.add(dedupe_key)
             anchor_ids, quote = anchor
             entities = item.get("entities") or []
             if not isinstance(entities, list):
                 entities = []
+            clean_entities = [
+                str(value).strip() for value in entities if str(value).strip()
+            ]
+            timestamp = int(segment_map[anchor_ids[0]].start)
+            duplicate = next(
+                (
+                    existing
+                    for existing in all_claims
+                    if _claims_are_near_duplicate(existing["claim_zh"], zh)
+                ),
+                None,
+            )
+            if duplicate is not None:
+                _merge_claim_occurrence(
+                    duplicate,
+                    anchor_ids=anchor_ids,
+                    timestamp=timestamp,
+                    entities=clean_entities,
+                )
+                continue
             all_claims.append(
                 {
                     "id": f"claim_{len(all_claims) + 1:04d}",
@@ -215,24 +320,19 @@ def extract_claims(settings: Settings, transcript: Transcript) -> list[dict[str,
                     "claim_type": str(item.get("type") or "其他").strip(),
                     "quote": quote,
                     "anchor_segment_ids": anchor_ids,
-                    "timestamp_sec": int(segment_map[anchor_ids[0]].start),
+                    "timestamp_sec": timestamp,
+                    "timestamps_sec": [timestamp],
                     "checkability_reason": str(
                         item.get("checkability_reason") or ""
                     ).strip(),
-                    "entities": [
-                        str(value).strip()
-                        for value in entities
-                        if str(value).strip()
-                    ],
+                    "entities": clean_entities,
                     "temporal_context": str(
                         item.get("temporal_context") or ""
                     ).strip(),
                 }
             )
-            if len(all_claims) >= settings.max_claims:
-                return all_claims
 
-    return all_claims
+    return _select_claims_across_timeline(all_claims, settings.max_claims)
 
 
 def _guess_timestamp(needle: str, timeline: list[tuple[float, str]]) -> int:

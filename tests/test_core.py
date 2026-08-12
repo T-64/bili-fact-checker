@@ -51,6 +51,7 @@ def test_report_schema_and_abstention_language():
     assert data["schema_version"] == "1.0"
     assert data["stats"]["claim_count"] == 1
     assert data["stats"]["insufficient_evidence"] == 1
+    assert data["claims"][0]["claim"]["timestamps_sec"] == [12]
     md = to_markdown(report)
     assert "insufficient_evidence" in md
     assert "搜索结果摘要不计入证据" in md

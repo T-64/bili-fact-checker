@@ -55,10 +55,24 @@ class ClaimEvidenceResult:
 def build_search_queries(
     claim: AtomicClaim, *, limit: int
 ) -> list[SearchQuery]:
-    """Build a bounded baseline plan; richer question generation comes later."""
+    """Build bounded exact, primary-source, and cross-language search queries."""
 
     claim_number = claim.id.removeprefix("claim_")
-    values = [("zh", claim.claim_zh), ("en", claim.claim_en)]
+    source_query = " ".join(
+        value
+        for value in [
+            "官方 原始来源",
+            *claim.entities[:3],
+            claim.temporal_context,
+            claim.claim_zh,
+        ]
+        if value.strip()
+    )
+    values = [
+        ("zh", claim.claim_zh),
+        ("zh", source_query),
+        ("en", claim.claim_en),
+    ]
     queries: list[SearchQuery] = []
     seen: set[str] = set()
     for language, value in values:

@@ -146,7 +146,11 @@ def to_markdown(report: AnalysisReport | dict[str, Any]) -> str:
         claim = item.get("claim") or {}
         verdict = item.get("verdict") or {}
         seconds = int(claim.get("timestamp_sec") or 0)
-        link = _timestamp_link(str(video.get("url") or ""), seconds)
+        timestamps = claim.get("timestamps_sec") or [seconds]
+        time_links = "、".join(
+            f"[{int(value)}s]({_timestamp_link(str(video.get('url') or ''), int(value))})"
+            for value in timestamps
+        )
         lines.extend(
             [
                 (
@@ -155,7 +159,7 @@ def to_markdown(report: AnalysisReport | dict[str, Any]) -> str:
                 ),
                 f"**声明**: {claim.get('claim_zh')}",
                 f"**视频原话**: “{claim.get('quote')}”",
-                f"**时间**: [{seconds}s]({link})",
+                f"**时间**: {time_links}",
                 f"**判定依据**: {verdict.get('reason')}",
                 "",
             ]
@@ -214,6 +218,11 @@ def to_html(report: AnalysisReport | dict[str, Any]) -> str:
         claim = item.get("claim") or {}
         verdict = item.get("verdict") or {}
         seconds = int(claim.get("timestamp_sec") or 0)
+        timestamps = claim.get("timestamps_sec") or [seconds]
+        time_links = "、".join(
+            f'<a href="{html.escape(_timestamp_link(str(video.get("url") or ""), int(value)))}">{int(value)}s</a>'
+            for value in timestamps
+        )
         document_map = {
             value.get("id"): value for value in item.get("documents") or []
         }
@@ -253,7 +262,7 @@ def to_html(report: AnalysisReport | dict[str, Any]) -> str:
   <small>证据强度 {html.escape(str(verdict.get('strength') or 'none'))}</small></header>
   <h3>{html.escape(str(claim.get('claim_zh') or ''))}</h3>
   <p>原话：“{html.escape(str(claim.get('quote') or ''))}” ·
-  <a href="{html.escape(_timestamp_link(str(video.get('url') or ''), seconds))}">{seconds}s</a></p>
+  {time_links}</p>
   <p>{html.escape(str(verdict.get('reason') or ''))}</p>
   {evidence_body}
 </article>"""
