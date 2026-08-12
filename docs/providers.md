@@ -90,3 +90,11 @@ Native web search may be billed separately from model tokens. Configure
 `BFC_MAX_SEARCHES_PER_CLAIM` and `BFC_MAX_TOTAL_SEARCHES` before large runs.
 Reports record provider-returned usage counts where available but never embed
 mutable vendor prices.
+
+Retrieval is incremental: the next query is sent only when the current fetched
+evidence remains below the deterministic verdict threshold. Successful search
+results are cached for one day and extracted page text for seven days under
+`~/.cache/bili-fact-checker`. Cache hits are identified in the audit events and
+record zero requests/billable uses for that run. Configure
+`BFC_SEARCH_CACHE_TTL`, `BFC_PAGE_CACHE_TTL`, and `BFC_CACHE_DIR`; set a TTL to
+`0` to disable that cache.

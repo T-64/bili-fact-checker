@@ -54,6 +54,7 @@ class SearchBatch:
     candidates: list[SearchCandidate] = field(default_factory=list)
     usage: SearchUsage | None = None
     warnings: list[str] = field(default_factory=list)
+    cache_hit: bool = False
 
 
 class SearchProvider(Protocol):

@@ -5,6 +5,11 @@ from __future__ import annotations
 from typing import Any, Callable
 
 from bili_fact_checker.analyze import extract_claims, summarize
+from bili_fact_checker.cache import (
+    CachedPageFetcher,
+    CachedSearchProvider,
+    JsonDiskCache,
+)
 from bili_fact_checker.config import Settings
 from bili_fact_checker.evidence import EvidenceService
 from bili_fact_checker.ingest import fetch_transcript
@@ -64,10 +69,24 @@ def run_pipeline(
     events: list[AnalysisEvent] = []
     usages = []
     base_provider = build_search_provider(settings)
-    search_provider = BudgetedSearchProvider(
+    budgeted_provider = BudgetedSearchProvider(
         base_provider, settings.max_searches_per_run
     )
-    evidence_service = EvidenceService(settings, search_provider)
+    search_provider = CachedSearchProvider(
+        budgeted_provider,
+        JsonDiskCache(
+            settings.cache_dir, "search", settings.search_cache_ttl_seconds
+        ),
+        endpoint_namespace=settings.effective_search_api_base,
+    )
+    page_fetcher = CachedPageFetcher(
+        JsonDiskCache(
+            settings.cache_dir, "pages", settings.page_cache_ttl_seconds
+        )
+    )
+    evidence_service = EvidenceService(
+        settings, search_provider, page_fetcher=page_fetcher
+    )
 
     for raw_claim in raw_claims:
         try:

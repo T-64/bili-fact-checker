@@ -29,6 +29,7 @@ from bili_fact_checker.models import (
     SearchCandidate,
     SearchQuery,
     SearchUsage,
+    Verdict,
 )
 from bili_fact_checker.providers import chat, extract_json_array
 from bili_fact_checker.providers.search import (
@@ -153,13 +154,19 @@ class EvidenceService:
     def analyze_claim(self, claim: AtomicClaim) -> ClaimEvidenceResult:
         events: list[AnalysisEvent] = []
         usages: list[SearchUsage] = []
-        queries = build_search_queries(
+        planned_queries = build_search_queries(
             claim, limit=self.settings.max_searches_per_claim
         )
+        executed_queries: list[SearchQuery] = []
         candidates: list[SearchCandidate] = []
+        documents = []
+        excerpts: list[EvidenceExcerpt] = []
+        assessments: list[EvidenceAssessment] = []
         seen_urls: set[str] = set()
+        verdict = aggregate_verdict([], [], [])
 
-        for query in queries:
+        for query_index, query in enumerate(planned_queries):
+            executed_queries.append(query)
             try:
                 batch = self.search_provider.search(
                     SearchRequest(
@@ -183,6 +190,15 @@ class EvidenceService:
                 continue
             if batch.usage:
                 usages.append(batch.usage)
+            if batch.cache_hit:
+                events.append(
+                    AnalysisEvent(
+                        stage="search",
+                        code="search_cache_hit",
+                        message="复用了仍在有效期内的搜索结果。",
+                        details={"claim_id": claim.id, "query_id": query.id},
+                    )
+                )
             for warning in batch.warnings:
                 events.append(
                     AnalysisEvent(
@@ -193,87 +209,141 @@ class EvidenceService:
                         details={"claim_id": claim.id, "query_id": query.id},
                     )
                 )
+            new_candidates: list[SearchCandidate] = []
             for candidate in batch.candidates:
                 key = str(candidate.url)
                 if key in seen_urls:
                     continue
                 seen_urls.add(key)
                 # Renumber after cross-query URL deduplication.
-                candidates.append(
-                    candidate.model_copy(
-                        update={"id": f"candidate_{len(candidates) + 1:05d}"}
-                    )
+                normalized = candidate.model_copy(
+                    update={"id": f"candidate_{len(candidates) + 1:05d}"}
                 )
+                candidates.append(normalized)
+                new_candidates.append(normalized)
 
-        documents = []
-        excerpts: list[EvidenceExcerpt] = []
-        for candidate in candidates:
-            try:
-                page = self.page_fetcher(
-                    candidate,
-                    document_id=f"doc_{len(documents) + 1:05d}",
-                    proxy=self.settings.proxy,
-                    timeout=self.settings.fetch_timeout_seconds,
-                    max_bytes=self.settings.fetch_max_bytes,
-                )
-            except (PageFetchError, OSError, ValueError) as exc:
-                events.append(
-                    AnalysisEvent(
-                        stage="fetch",
-                        level=EventLevel.WARNING,
-                        code="page_fetch_failed",
-                        message=str(exc),
-                        details={
-                            "claim_id": claim.id,
-                            "candidate_id": candidate.id,
-                            "url": str(candidate.url),
-                        },
+            new_excerpts: list[EvidenceExcerpt] = []
+            for candidate in new_candidates:
+                try:
+                    page = self.page_fetcher(
+                        candidate,
+                        document_id=f"doc_{len(documents) + 1:05d}",
+                        proxy=self.settings.proxy,
+                        timeout=self.settings.fetch_timeout_seconds,
+                        max_bytes=self.settings.fetch_max_bytes,
                     )
-                )
-                continue
-            documents.append(page.document)
-            excerpts.extend(
-                extract_relevant_excerpts(
+                except (PageFetchError, OSError, ValueError) as exc:
+                    events.append(
+                        AnalysisEvent(
+                            stage="fetch",
+                            level=EventLevel.WARNING,
+                            code="page_fetch_failed",
+                            message=str(exc),
+                            details={
+                                "claim_id": claim.id,
+                                "candidate_id": candidate.id,
+                                "url": str(candidate.url),
+                            },
+                        )
+                    )
+                    continue
+                documents.append(page.document)
+                if page.cache_hit:
+                    events.append(
+                        AnalysisEvent(
+                            stage="fetch",
+                            code="page_cache_hit",
+                            message="复用了仍在有效期内的页面正文。",
+                            details={
+                                "claim_id": claim.id,
+                                "candidate_id": candidate.id,
+                                "url": str(candidate.url),
+                            },
+                        )
+                    )
+                selected = extract_relevant_excerpts(
                     page,
                     claim_text=claim.claim_zh,
                     quote=claim.quote,
                     entities=claim.entities,
-                    first_id=len(excerpts) + 1,
+                    first_id=len(excerpts) + len(new_excerpts) + 1,
                     limit=3,
                     reranker=self.reranker,
                 )
-            )
+                new_excerpts.extend(selected)
 
-        assessments: list[EvidenceAssessment] = []
-        if excerpts:
-            try:
-                untrusted = self.excerpt_assessor(self.settings, claim, excerpts)
-                assessments, rejected = validate_assessments(untrusted, excerpts)
-                if rejected:
+            excerpts.extend(new_excerpts)
+            if new_excerpts:
+                try:
+                    untrusted = self.excerpt_assessor(
+                        self.settings, claim, new_excerpts
+                    )
+                    accepted, rejected = validate_assessments(
+                        untrusted, new_excerpts
+                    )
+                    assessments.extend(accepted)
+                    if rejected:
+                        events.append(
+                            AnalysisEvent(
+                                stage="assessment",
+                                level=EventLevel.WARNING,
+                                code="assessment_reference_rejected",
+                                message="模型返回了未知或重复的证据 ID，已丢弃。",
+                                details={
+                                    "claim_id": claim.id,
+                                    "excerpt_ids": rejected,
+                                },
+                            )
+                        )
+                except Exception as exc:
                     events.append(
                         AnalysisEvent(
                             stage="assessment",
-                            level=EventLevel.WARNING,
-                            code="assessment_reference_rejected",
-                            message="模型返回了未知或重复的证据 ID，已丢弃。",
-                            details={"claim_id": claim.id, "excerpt_ids": rejected},
+                            level=EventLevel.ERROR,
+                            code="assessment_failed",
+                            message=str(exc),
+                            details={"claim_id": claim.id},
                         )
                     )
-            except Exception as exc:
+
+            verdict = aggregate_verdict(assessments, excerpts, documents)
+            if verdict.verdict != Verdict.INSUFFICIENT_EVIDENCE:
+                if query_index + 1 < len(planned_queries):
+                    events.append(
+                        AnalysisEvent(
+                            stage="search",
+                            code="search_stopped_evidence_sufficient",
+                            message="证据已达到判定门槛，未继续消耗搜索预算。",
+                            details={
+                                "claim_id": claim.id,
+                                "unused_queries": len(planned_queries)
+                                - query_index
+                                - 1,
+                            },
+                        )
+                    )
+                break
+            if query_index + 1 < len(planned_queries):
                 events.append(
                     AnalysisEvent(
-                        stage="assessment",
-                        level=EventLevel.ERROR,
-                        code="assessment_failed",
-                        message=str(exc),
-                        details={"claim_id": claim.id},
+                        stage="search",
+                        code="evidence_gap",
+                        message="当前证据未达到判定门槛，继续下一轮检索。",
+                        details={
+                            "claim_id": claim.id,
+                            "documents": len(documents),
+                            "directional_excerpts": len(
+                                verdict.supporting_excerpt_ids
+                                + verdict.refuting_excerpt_ids
+                            ),
+                            "strength": verdict.strength.value,
+                        },
                     )
                 )
 
-        verdict = aggregate_verdict(assessments, excerpts, documents)
         analysis = ClaimAnalysis(
             claim=claim,
-            queries=queries,
+            queries=executed_queries,
             candidates=candidates,
             documents=documents,
             excerpts=excerpts,

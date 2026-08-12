@@ -184,6 +184,7 @@ class _ReadableHTMLParser(HTMLParser):
 class FetchedPage:
     document: EvidenceDocument
     text: str
+    cache_hit: bool = False
 
 
 @dataclass(frozen=True)
