@@ -118,6 +118,44 @@ def _candidate(
         return None
 
 
+def _endpoint(base: str, suffix: str) -> str:
+    base = base.rstrip("/")
+    return base if base.endswith(suffix) else f"{base}/{suffix.lstrip('/')}"
+
+
+def _append_unique_candidate(
+    candidates: list[SearchCandidate],
+    seen_urls: set[str],
+    *,
+    request: SearchRequest,
+    provider: str,
+    title: Any,
+    url: Any,
+    snippet: Any = "",
+    published_at: Any = "",
+    raw_reference: Any = "",
+) -> bool:
+    normalized = _candidate(
+        number=request.first_candidate_number + len(candidates),
+        request=request,
+        provider=provider,
+        rank=len(candidates) + 1,
+        title=title,
+        url=url,
+        snippet=snippet,
+        published_at=published_at,
+        raw_reference=raw_reference,
+    )
+    if normalized is None:
+        return False
+    key = str(normalized.url)
+    if key in seen_urls:
+        return True
+    seen_urls.add(key)
+    candidates.append(normalized)
+    return True
+
+
 class ZaiSearchProvider:
     name = "zai"
     capabilities = SearchProviderCapabilities(
@@ -210,6 +248,331 @@ class ZaiSearchProvider:
             provider=self.name,
             candidates=candidates,
             usage=usage,
+            warnings=warnings,
+        )
+
+
+class OpenAISearchProvider:
+    name = "openai"
+    capabilities = SearchProviderCapabilities(
+        provider=name,
+        native_to_llm=True,
+        returns_source_urls=True,
+        returns_cited_text=True,
+        supports_domain_filter=True,
+        reports_usage=True,
+    )
+
+    def __init__(self, settings: Settings, *, transport: PostJson = post_json) -> None:
+        self._settings = settings
+        self._transport = transport
+
+    def search(self, request: SearchRequest) -> SearchBatch:
+        api_key = self._settings.effective_search_api_key
+        if not api_key:
+            raise SearchUnavailableError("OpenAI search requires an API key")
+        prompt = (
+            "Search the public web for source pages that can verify or refute "
+            f"this claim. Return grounded results with citations: {request.text}"
+        )
+        tool: dict[str, Any] = {"type": "web_search"}
+        if request.allowed_domain:
+            tool["filters"] = {"allowed_domains": [request.allowed_domain]}
+        payload = {
+            "model": self._settings.openai_model,
+            "tools": [tool],
+            "tool_choice": "required",
+            "include": ["web_search_call.action.sources"],
+            "input": prompt,
+        }
+        try:
+            data = self._transport(
+                _endpoint(self._settings.effective_search_api_base, "responses"),
+                payload,
+                proxy=self._settings.proxy,
+                headers={"Authorization": f"Bearer {api_key}"},
+                timeout=self._settings.search_timeout_seconds,
+            )
+        except Exception as exc:
+            raise SearchProviderError(f"OpenAI web search request failed: {exc}") from exc
+        if not isinstance(data, dict):
+            raise SearchProviderError("OpenAI web search returned a non-object response")
+
+        candidates: list[SearchCandidate] = []
+        seen_urls: set[str] = set()
+        rejected = 0
+        search_calls = 0
+        for output in data.get("output") or []:
+            if not isinstance(output, dict):
+                continue
+            if output.get("type") == "web_search_call":
+                action = output.get("action") or {}
+                if isinstance(action, dict) and action.get("type") == "search":
+                    search_calls += 1
+                sources = action.get("sources") if isinstance(action, dict) else []
+                for source in sources or []:
+                    if not isinstance(source, dict):
+                        rejected += 1
+                        continue
+                    if not _append_unique_candidate(
+                        candidates,
+                        seen_urls,
+                        request=request,
+                        provider=self.name,
+                        title=source.get("title"),
+                        url=source.get("url"),
+                        snippet=source.get("snippet"),
+                        published_at=source.get("published_at"),
+                        raw_reference=output.get("id"),
+                    ):
+                        rejected += 1
+            if output.get("type") != "message":
+                continue
+            for content in output.get("content") or []:
+                if not isinstance(content, dict):
+                    continue
+                text = str(content.get("text") or "")
+                for annotation in content.get("annotations") or []:
+                    if not isinstance(annotation, dict) or annotation.get("type") != "url_citation":
+                        continue
+                    start = annotation.get("start_index")
+                    end = annotation.get("end_index")
+                    snippet = ""
+                    if isinstance(start, int) and isinstance(end, int):
+                        snippet = text[max(start, 0) : max(end, 0)]
+                    if not _append_unique_candidate(
+                        candidates,
+                        seen_urls,
+                        request=request,
+                        provider=self.name,
+                        title=annotation.get("title"),
+                        url=annotation.get("url"),
+                        snippet=snippet,
+                        raw_reference=output.get("id"),
+                    ):
+                        rejected += 1
+                if len(candidates) >= request.limit:
+                    break
+            if len(candidates) >= request.limit:
+                break
+        candidates = candidates[: request.limit]
+        warnings = [f"rejected {rejected} malformed search result(s)"] if rejected else []
+        return SearchBatch(
+            provider=self.name,
+            candidates=candidates,
+            usage=SearchUsage(
+                provider=self.name,
+                request_count=1,
+                result_count=len(candidates),
+                provider_request_id=str(data.get("id") or ""),
+                billable_uses=search_calls or None,
+            ),
+            warnings=warnings,
+        )
+
+
+class GeminiSearchProvider:
+    name = "gemini"
+    capabilities = SearchProviderCapabilities(
+        provider=name,
+        native_to_llm=True,
+        returns_source_urls=True,
+        returns_cited_text=True,
+        reports_usage=True,
+    )
+
+    def __init__(self, settings: Settings, *, transport: PostJson = post_json) -> None:
+        self._settings = settings
+        self._transport = transport
+
+    def search(self, request: SearchRequest) -> SearchBatch:
+        api_key = self._settings.effective_search_api_key
+        if not api_key:
+            raise SearchUnavailableError("Gemini search requires an API key")
+        payload = {
+            "model": self._settings.openai_model.removeprefix("models/"),
+            "input": (
+                "Search for public source pages that can verify or refute this "
+                f"claim, and cite every source: {request.text}"
+            ),
+            "tools": [{"type": "google_search"}],
+        }
+        try:
+            data = self._transport(
+                _endpoint(self._settings.effective_search_api_base, "interactions"),
+                payload,
+                proxy=self._settings.proxy,
+                headers={"x-goog-api-key": api_key},
+                timeout=self._settings.search_timeout_seconds,
+            )
+        except Exception as exc:
+            raise SearchProviderError(f"Gemini Google Search request failed: {exc}") from exc
+        if not isinstance(data, dict):
+            raise SearchProviderError("Gemini search returned a non-object response")
+
+        candidates: list[SearchCandidate] = []
+        seen_urls: set[str] = set()
+        rejected = 0
+        search_calls = 0
+        for step in data.get("steps") or []:
+            if not isinstance(step, dict):
+                continue
+            if step.get("type") == "google_search_call":
+                search_calls += 1
+            if step.get("type") != "model_output":
+                continue
+            for content in step.get("content") or []:
+                if not isinstance(content, dict) or content.get("type") != "text":
+                    continue
+                text = str(content.get("text") or "")
+                for annotation in content.get("annotations") or []:
+                    if not isinstance(annotation, dict) or annotation.get("type") != "url_citation":
+                        continue
+                    start = annotation.get("start_index")
+                    end = annotation.get("end_index")
+                    snippet = ""
+                    if isinstance(start, int) and isinstance(end, int):
+                        snippet = text[max(start, 0) : max(end, 0)]
+                    if not _append_unique_candidate(
+                        candidates,
+                        seen_urls,
+                        request=request,
+                        provider=self.name,
+                        title=annotation.get("title"),
+                        url=annotation.get("url"),
+                        snippet=snippet,
+                        raw_reference=step.get("id"),
+                    ):
+                        rejected += 1
+                if len(candidates) >= request.limit:
+                    break
+        candidates = candidates[: request.limit]
+        warnings = [f"rejected {rejected} malformed search result(s)"] if rejected else []
+        return SearchBatch(
+            provider=self.name,
+            candidates=candidates,
+            usage=SearchUsage(
+                provider=self.name,
+                request_count=1,
+                result_count=len(candidates),
+                provider_request_id=str(data.get("id") or ""),
+                billable_uses=search_calls or None,
+            ),
+            warnings=warnings,
+        )
+
+
+class AnthropicSearchProvider:
+    name = "anthropic"
+    capabilities = SearchProviderCapabilities(
+        provider=name,
+        native_to_llm=True,
+        returns_source_urls=True,
+        returns_cited_text=True,
+        supports_domain_filter=True,
+        reports_usage=True,
+    )
+
+    def __init__(self, settings: Settings, *, transport: PostJson = post_json) -> None:
+        self._settings = settings
+        self._transport = transport
+
+    def search(self, request: SearchRequest) -> SearchBatch:
+        api_key = self._settings.effective_search_api_key
+        if not api_key:
+            raise SearchUnavailableError("Anthropic search requires an API key")
+        tool: dict[str, Any] = {
+            "type": "web_search_20250305",
+            "name": "web_search",
+            "max_uses": 1,
+        }
+        if request.allowed_domain:
+            tool["allowed_domains"] = [request.allowed_domain]
+        payload = {
+            "model": self._settings.openai_model,
+            "max_tokens": 1024,
+            "messages": [
+                {
+                    "role": "user",
+                    "content": (
+                        "Search for public source pages that can verify or refute "
+                        f"this claim. Cite the sources: {request.text}"
+                    ),
+                }
+            ],
+            "tools": [tool],
+        }
+        try:
+            data = self._transport(
+                _endpoint(self._settings.effective_search_api_base, "messages"),
+                payload,
+                proxy=self._settings.proxy,
+                headers={
+                    "x-api-key": api_key,
+                    "anthropic-version": "2023-06-01",
+                },
+                timeout=self._settings.search_timeout_seconds,
+            )
+        except Exception as exc:
+            raise SearchProviderError(f"Anthropic web search request failed: {exc}") from exc
+        if not isinstance(data, dict):
+            raise SearchProviderError("Anthropic search returned a non-object response")
+
+        candidates: list[SearchCandidate] = []
+        seen_urls: set[str] = set()
+        rejected = 0
+        for block in data.get("content") or []:
+            if not isinstance(block, dict):
+                continue
+            if block.get("type") == "web_search_tool_result":
+                result_content = block.get("content") or []
+                if not isinstance(result_content, list):
+                    continue
+                for result in result_content:
+                    if not isinstance(result, dict) or result.get("type") != "web_search_result":
+                        continue
+                    if not _append_unique_candidate(
+                        candidates,
+                        seen_urls,
+                        request=request,
+                        provider=self.name,
+                        title=result.get("title"),
+                        url=result.get("url"),
+                        published_at=result.get("page_age"),
+                        raw_reference=block.get("tool_use_id"),
+                    ):
+                        rejected += 1
+            if block.get("type") == "text":
+                for citation in block.get("citations") or []:
+                    if not isinstance(citation, dict) or citation.get("type") != "web_search_result_location":
+                        continue
+                    if not _append_unique_candidate(
+                        candidates,
+                        seen_urls,
+                        request=request,
+                        provider=self.name,
+                        title=citation.get("title"),
+                        url=citation.get("url"),
+                        snippet=citation.get("cited_text"),
+                        raw_reference=citation.get("encrypted_index"),
+                    ):
+                        rejected += 1
+            if len(candidates) >= request.limit:
+                break
+        candidates = candidates[: request.limit]
+        server_usage = (data.get("usage") or {}).get("server_tool_use") or {}
+        billable = server_usage.get("web_search_requests")
+        warnings = [f"rejected {rejected} malformed search result(s)"] if rejected else []
+        return SearchBatch(
+            provider=self.name,
+            candidates=candidates,
+            usage=SearchUsage(
+                provider=self.name,
+                request_count=1,
+                result_count=len(candidates),
+                provider_request_id=str(data.get("id") or ""),
+                billable_uses=int(billable) if isinstance(billable, int) else None,
+            ),
             warnings=warnings,
         )
 
@@ -392,6 +755,12 @@ def build_search_provider(
         )
     if requested == "zai":
         return ZaiSearchProvider(settings, transport=post_transport)
+    if requested == "openai":
+        return OpenAISearchProvider(settings, transport=post_transport)
+    if requested == "gemini":
+        return GeminiSearchProvider(settings, transport=post_transport)
+    if requested in {"anthropic", "claude"}:
+        return AnthropicSearchProvider(settings, transport=post_transport)
     if requested == "searxng":
         return SearxngSearchProvider(settings, transport=get_transport)
     if requested == "tavily":
@@ -401,10 +770,12 @@ def build_search_provider(
 
     if requested == "auto" and native == "zai":
         return ZaiSearchProvider(settings, transport=post_transport)
-    if requested == "auto" and native in {"openai", "gemini", "anthropic"}:
-        return UnavailableSearchProvider(
-            f"native {native} search adapter is planned but not implemented"
-        )
+    if requested == "auto" and native == "openai":
+        return OpenAISearchProvider(settings, transport=post_transport)
+    if requested == "auto" and native == "gemini":
+        return GeminiSearchProvider(settings, transport=post_transport)
+    if requested == "auto" and native == "anthropic":
+        return AnthropicSearchProvider(settings, transport=post_transport)
     if settings.searxng_url:
         return SearxngSearchProvider(settings, transport=get_transport)
     if settings.tavily_api_key:
