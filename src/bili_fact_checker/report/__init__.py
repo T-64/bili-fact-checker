@@ -1,217 +1,276 @@
-"""Report rendering: JSON / Markdown / HTML."""
+"""Versioned report construction and JSON / Markdown / HTML rendering."""
 
 from __future__ import annotations
 
+import hashlib
 import html
 import json
-from datetime import datetime, timezone
 from typing import Any
+
+from bili_fact_checker import __version__
+from bili_fact_checker.models import (
+    AnalysisEvent,
+    AnalysisReport,
+    ClaimAnalysis,
+    ReportStats,
+    RunInfo,
+    SearchProviderCapabilities,
+    SearchUsage,
+    TranscriptInfo,
+    TranscriptSegment,
+    Verdict,
+    VideoInfo,
+)
+
+
+def _stats(claims: list[ClaimAnalysis]) -> ReportStats:
+    values = [item.verdict.verdict for item in claims]
+    return ReportStats(
+        claim_count=len(values),
+        supported=values.count(Verdict.SUPPORTED),
+        refuted=values.count(Verdict.REFUTED),
+        disputed=values.count(Verdict.DISPUTED),
+        insufficient_evidence=values.count(Verdict.INSUFFICIENT_EVIDENCE),
+    )
 
 
 def build_report(
     *,
     transcript: dict[str, Any],
     summary: str | None,
-    claims: list[dict[str, Any]],
-    tasks: list[str],
-) -> dict[str, Any]:
-    return {
-        "schema_version": "0.1",
-        "generated_at": datetime.now(timezone.utc).isoformat(),
-        "disclaimer": (
-            "本工具输出仅为辅助线索，不是权威最终裁决。"
-            "请核对来源链接；标为 model_inference 的条目无外部举证。"
+    claims: list[ClaimAnalysis],
+    model: str,
+    search_providers: list[str],
+    search_capabilities: list[SearchProviderCapabilities] | None = None,
+    search_usage: list[SearchUsage] | None = None,
+    events: list[AnalysisEvent] | None = None,
+) -> AnalysisReport:
+    """Build the single public 1.0 report representation."""
+
+    transcript_text = str(transcript.get("text") or "")
+    segments = [
+        TranscriptSegment(
+            id=str(item.get("id") or f"seg_{index:05d}"),
+            start=float(item.get("start") or 0),
+            end=float(item.get("end") or 0),
+            text=str(item.get("text") or ""),
+        )
+        for index, item in enumerate(transcript.get("segments") or [], start=1)
+        if str(item.get("text") or "").strip()
+    ]
+    bvid = str(transcript.get("bvid") or "")
+    source = str(transcript.get("source") or "file")
+    return AnalysisReport(
+        run=RunInfo(
+            software_version=__version__,
+            model=model,
+            search_providers=search_providers,
+            search_capabilities=search_capabilities or [],
+            search_usage=search_usage or [],
         ),
-        "tasks": tasks,
-        "video": {
-            "bvid": transcript.get("bvid"),
-            "title": transcript.get("title"),
-            "aid": transcript.get("aid"),
-            "cid": transcript.get("cid"),
-            "subtitle_source": transcript.get("source"),
-            "language": transcript.get("language"),
-            "char_count": len(transcript.get("text") or ""),
-            "url": f"https://www.bilibili.com/video/{transcript.get('bvid')}",
-        },
-        "summary": summary or "",
-        "claims": claims,
-        "stats": _stats(claims),
-    }
+        video=VideoInfo(
+            bvid=bvid,
+            title=str(transcript.get("title") or bvid),
+            url=f"https://www.bilibili.com/video/{bvid}",
+            aid=str(transcript.get("aid") or ""),
+            cid=str(transcript.get("cid") or ""),
+        ),
+        transcript=TranscriptInfo(
+            source=source,
+            language=str(transcript.get("language") or "unknown"),
+            segments=segments,
+            text_sha256=hashlib.sha256(transcript_text.encode("utf-8")).hexdigest(),
+        ),
+        summary=summary or "",
+        claims=claims,
+        events=events or [],
+        stats=_stats(claims),
+    )
 
 
-def _stats(claims: list[dict[str, Any]]) -> dict[str, int]:
-    sourced = 0
-    inference = 0
-    unverified = 0
-    for c in claims:
-        j = c.get("judgment") or {}
-        label = j.get("label") or ""
-        verdict = j.get("verdict") or ""
-        if label == "model_inference":
-            inference += 1
-        elif label.startswith("sourced"):
-            sourced += 1
-        if verdict in ("unverified", "") and not c.get("has_sourced_evidence"):
-            unverified += 1
-    return {
-        "claim_count": len(claims),
-        "sourced": sourced,
-        "model_inference": inference,
-        "unverified_or_weak": unverified,
-    }
+def report_dict(report: AnalysisReport | dict[str, Any]) -> dict[str, Any]:
+    if isinstance(report, AnalysisReport):
+        return report.model_dump(mode="json")
+    return report
 
 
-def to_markdown(report: dict[str, Any]) -> str:
-    v = report.get("video") or {}
+def _timestamp_link(video_url: str, seconds: int) -> str:
+    separator = "&" if "?" in video_url else "?"
+    return f"{video_url}{separator}t={seconds}"
+
+
+def to_markdown(report: AnalysisReport | dict[str, Any]) -> str:
+    data = report_dict(report)
+    video = data.get("video") or {}
+    run = data.get("run") or {}
+    stats = data.get("stats") or {}
     lines = [
-        "# B站口播事实核查报告",
+        "# B站口播证据核查报告",
         "",
-        f"**视频**: [{v.get('title')}]({v.get('url')})",
-        f"**BV**: `{v.get('bvid')}` · 字幕来源: `{v.get('subtitle_source')}`",
-        f"**生成时间**: {report.get('generated_at')}",
+        f"**视频**: [{video.get('title')}]({video.get('url')})",
+        f"**BV**: `{video.get('bvid')}` · Schema: `{data.get('schema_version')}`",
+        f"**生成时间**: {run.get('generated_at')}",
         "",
-        f"> {report.get('disclaimer')}",
+        f"> {data.get('disclaimer')}",
         "",
     ]
-    if report.get("summary"):
-        lines.extend(["## 内容总结", "", report["summary"].strip(), ""])
+    if data.get("summary"):
+        lines.extend(["## 内容总结", "", str(data["summary"]).strip(), ""])
 
-    claims = report.get("claims") or []
-    lines.append(f"## 声明核查（{len(claims)}）")
-    lines.append("")
-    stats = report.get("stats") or {}
-    lines.append(
-        f"汇总：有出处 {stats.get('sourced', 0)} · "
-        f"模型推断 {stats.get('model_inference', 0)} · "
-        f"弱/未核实 {stats.get('unverified_or_weak', 0)}"
+    claims = data.get("claims") or []
+    lines.extend(
+        [
+            f"## 声明核查（{len(claims)}）",
+            "",
+            (
+                f"支持 {stats.get('supported', 0)} · "
+                f"反驳 {stats.get('refuted', 0)} · "
+                f"存在争议 {stats.get('disputed', 0)} · "
+                f"证据不足 {stats.get('insufficient_evidence', 0)}"
+            ),
+            "",
+        ]
     )
-    lines.append("")
 
-    for i, c in enumerate(claims, 1):
-        j = c.get("judgment") or {}
-        label = j.get("label") or "unknown"
-        verdict = j.get("verdict") or "unverified"
-        lines.append(f"### {i}. [{c.get('type', '')}] `{verdict}` · `{label}`")
-        lines.append(f"**声明**: {c.get('claim_zh')}")
-        if c.get("claim_en"):
-            lines.append(f"**EN**: {c['claim_en']}")
-        if c.get("timestamp_sec"):
-            lines.append(f"**时间**: {int(c['timestamp_sec'])}s")
-        if j.get("rationale"):
-            lines.append(f"**理由**: {j['rationale']}")
-        sources = j.get("sources") or []
-        fc = c.get("google_factcheck") or {}
-        if fc.get("url"):
-            sources = list(sources) + [fc["url"]]
-        # unique preserve order
-        seen = set()
-        uniq = []
-        for u in sources:
-            if u and u not in seen:
-                seen.add(u)
-                uniq.append(u)
-        if uniq:
-            lines.append("**来源**:")
-            for u in uniq:
-                lines.append(f"- {u}")
-        elif label == "model_inference":
-            lines.append("**来源**: （无外部证据 · model_inference）")
+    for index, item in enumerate(claims, start=1):
+        claim = item.get("claim") or {}
+        verdict = item.get("verdict") or {}
+        seconds = int(claim.get("timestamp_sec") or 0)
+        link = _timestamp_link(str(video.get("url") or ""), seconds)
+        lines.extend(
+            [
+                (
+                    f"### {index}. `{verdict.get('verdict')}` · "
+                    f"证据强度 `{verdict.get('strength')}`"
+                ),
+                f"**声明**: {claim.get('claim_zh')}",
+                f"**视频原话**: “{claim.get('quote')}”",
+                f"**时间**: [{seconds}s]({link})",
+                f"**判定依据**: {verdict.get('reason')}",
+                "",
+            ]
+        )
+        document_map = {
+            value.get("id"): value for value in item.get("documents") or []
+        }
+        excerpt_map = {
+            value.get("id"): value for value in item.get("excerpts") or []
+        }
+        assessment_map = {
+            value.get("excerpt_id"): value
+            for value in item.get("assessments") or []
+        }
+        evidence_ids = list(verdict.get("supporting_excerpt_ids") or [])
+        evidence_ids.extend(verdict.get("refuting_excerpt_ids") or [])
+        evidence_ids.extend(verdict.get("context_excerpt_ids") or [])
+        if evidence_ids:
+            lines.append("**已验证引文**:")
+            lines.append("")
+            for excerpt_id in dict.fromkeys(evidence_ids):
+                excerpt = excerpt_map.get(excerpt_id) or {}
+                document = document_map.get(excerpt.get("document_id")) or {}
+                assessment = assessment_map.get(excerpt_id) or {}
+                lines.extend(
+                    [
+                        (
+                            f"- **{assessment.get('stance', 'context')}** — "
+                            f"[{document.get('title') or document.get('url')}]"
+                            f"({document.get('url')})"
+                        ),
+                        f"  > {excerpt.get('text')}",
+                    ]
+                )
+        else:
+            lines.append("**已验证引文**: 无。搜索结果摘要不计入证据。")
         lines.append("")
 
+    events = data.get("events") or []
+    if events:
+        lines.extend(["## 审计事件", ""])
+        for event in events:
+            lines.append(
+                f"- `{event.get('level')}` `{event.get('code')}` {event.get('message')}"
+            )
+        lines.append("")
     return "\n".join(lines).rstrip() + "\n"
 
 
-def to_html(report: dict[str, Any]) -> str:
-    v = report.get("video") or {}
-    claims = report.get("claims") or []
-    summary = report.get("summary") or ""
-
-    def badge(label: str, verdict: str) -> str:
-        tone = "gray"
-        if label.startswith("sourced"):
-            tone = "green" if verdict in ("supported", "likely_true") else "amber"
-        if verdict in ("refuted", "likely_false"):
-            tone = "red"
-        if label == "model_inference":
-            tone = "gray"
-        return f'<span class="badge {tone}">{html.escape(verdict)} · {html.escape(label)}</span>'
-
-    cards = []
-    for i, c in enumerate(claims, 1):
-        j = c.get("judgment") or {}
-        sources = j.get("sources") or []
-        fc = c.get("google_factcheck") or {}
-        if fc.get("url"):
-            sources = list(sources) + [fc["url"]]
-        links = "".join(
-            f'<li><a href="{html.escape(u)}" target="_blank" rel="noopener">{html.escape(u)}</a></li>'
-            for u in dict.fromkeys([u for u in sources if u])
+def to_html(report: AnalysisReport | dict[str, Any]) -> str:
+    data = report_dict(report)
+    video = data.get("video") or {}
+    claims = data.get("claims") or []
+    cards: list[str] = []
+    for index, item in enumerate(claims, start=1):
+        claim = item.get("claim") or {}
+        verdict = item.get("verdict") or {}
+        seconds = int(claim.get("timestamp_sec") or 0)
+        document_map = {
+            value.get("id"): value for value in item.get("documents") or []
+        }
+        excerpt_map = {
+            value.get("id"): value for value in item.get("excerpts") or []
+        }
+        assessment_map = {
+            value.get("excerpt_id"): value
+            for value in item.get("assessments") or []
+        }
+        evidence_ids = list(verdict.get("supporting_excerpt_ids") or [])
+        evidence_ids.extend(verdict.get("refuting_excerpt_ids") or [])
+        evidence_ids.extend(verdict.get("context_excerpt_ids") or [])
+        evidence_html: list[str] = []
+        for excerpt_id in dict.fromkeys(evidence_ids):
+            excerpt = excerpt_map.get(excerpt_id) or {}
+            document = document_map.get(excerpt.get("document_id")) or {}
+            assessment = assessment_map.get(excerpt_id) or {}
+            evidence_html.append(
+                "<li>"
+                f"<strong>{html.escape(str(assessment.get('stance') or 'context'))}</strong> "
+                f"<a href=\"{html.escape(str(document.get('url') or ''))}\" "
+                "target=\"_blank\" rel=\"noopener\">"
+                f"{html.escape(str(document.get('title') or document.get('url') or '来源'))}</a>"
+                f"<blockquote>{html.escape(str(excerpt.get('text') or ''))}</blockquote>"
+                "</li>"
+            )
+        evidence_body = (
+            f"<ul class=\"evidence\">{''.join(evidence_html)}</ul>"
+            if evidence_html
+            else '<p class="muted">无已验证引文；搜索摘要不计入证据。</p>'
         )
         cards.append(
             f"""
 <article class="claim">
-  <header><span class="idx">#{i}</span> {badge(str(j.get('label') or ''), str(j.get('verdict') or ''))}</header>
-  <p class="claim-text">{html.escape(str(c.get('claim_zh') or ''))}</p>
-  <p class="meta">{html.escape(str(c.get('type') or ''))}
-  {" · " + str(int(c['timestamp_sec'])) + "s" if c.get("timestamp_sec") else ""}</p>
-  <p class="rationale">{html.escape(str(j.get("rationale") or ""))}</p>
-  {"<ul class='sources'>" + links + "</ul>" if links else "<p class='no-src'>无外部证据</p>"}
+  <header><span>#{index}</span><b>{html.escape(str(verdict.get('verdict') or ''))}</b>
+  <small>证据强度 {html.escape(str(verdict.get('strength') or 'none'))}</small></header>
+  <h3>{html.escape(str(claim.get('claim_zh') or ''))}</h3>
+  <p>原话：“{html.escape(str(claim.get('quote') or ''))}” ·
+  <a href="{html.escape(_timestamp_link(str(video.get('url') or ''), seconds))}">{seconds}s</a></p>
+  <p>{html.escape(str(verdict.get('reason') or ''))}</p>
+  {evidence_body}
 </article>"""
         )
 
-    summary_html = html.escape(summary).replace("\n", "<br>\n") if summary else "<p class='empty'>（未生成总结）</p>"
-
-    return f"""<!DOCTYPE html>
-<html lang="zh-CN">
-<head>
-<meta charset="utf-8"/>
-<meta name="viewport" content="width=device-width, initial-scale=1"/>
-<title>核查报告 · {html.escape(str(v.get('title') or v.get('bvid') or ''))}</title>
+    summary = html.escape(str(data.get("summary") or "")).replace("\n", "<br>")
+    return f"""<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>证据核查报告 · {html.escape(str(video.get('title') or ''))}</title>
 <style>
-:root {{ --bg:#0f1115; --panel:#171a21; --text:#e8eaed; --muted:#9aa0a6; --line:#2a2f3a;
-  --green:#3d8b6e; --red:#a85a5a; --amber:#a88a4a; --gray:#6b7280; }}
-* {{ box-sizing:border-box; }}
-body {{ margin:0; font-family: ui-sans-serif, system-ui, sans-serif; background:var(--bg); color:var(--text); line-height:1.55; }}
-main {{ max-width:820px; margin:0 auto; padding:32px 20px 64px; }}
-h1 {{ font-size:1.5rem; margin:0 0 8px; }}
-.sub {{ color:var(--muted); font-size:.95rem; margin-bottom:24px; }}
-.callout {{ border:1px solid var(--line); background:var(--panel); padding:12px 14px; border-radius:8px; color:var(--muted); font-size:.9rem; }}
-section {{ margin-top:28px; }}
-h2 {{ font-size:1.15rem; border-bottom:1px solid var(--line); padding-bottom:8px; }}
-.claim {{ background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:14px 16px; margin:12px 0; }}
-.claim header {{ display:flex; gap:10px; align-items:center; margin-bottom:8px; }}
-.idx {{ color:var(--muted); font-size:.85rem; }}
-.badge {{ font-size:.75rem; padding:2px 8px; border-radius:999px; border:1px solid var(--line); }}
-.badge.green {{ color:#b6e2d0; border-color:var(--green); }}
-.badge.red {{ color:#f0c4c4; border-color:var(--red); }}
-.badge.amber {{ color:#ead7a8; border-color:var(--amber); }}
-.badge.gray {{ color:#c5c9d0; border-color:var(--gray); }}
-.claim-text {{ margin:0 0 6px; font-weight:600; }}
-.meta, .rationale, .no-src {{ color:var(--muted); font-size:.9rem; }}
-.sources {{ margin:8px 0 0; padding-left:18px; }}
-.sources a {{ color:#8ab4f8; }}
-a {{ color:#8ab4f8; }}
-</style>
-</head>
-<body>
-<main>
-  <h1>B站口播事实核查</h1>
-  <p class="sub"><a href="{html.escape(str(v.get('url') or '#'))}">{html.escape(str(v.get('title') or ''))}</a>
-  · {html.escape(str(v.get('bvid') or ''))} · 字幕 {html.escape(str(v.get('subtitle_source') or ''))}</p>
-  <div class="callout">{html.escape(str(report.get('disclaimer') or ''))}</div>
-  <section>
-    <h2>内容总结</h2>
-    <div>{summary_html}</div>
-  </section>
-  <section>
-    <h2>声明核查（{len(claims)}）</h2>
-    {''.join(cards) if cards else "<p class='empty'>无声明</p>"}
-  </section>
-</main>
-</body>
-</html>
-"""
+:root{{--bg:#f5f2eb;--paper:#fffdf8;--ink:#24231f;--muted:#706d65;--line:#d8d2c5;--accent:#a53a2a}}
+*{{box-sizing:border-box}}body{{margin:0;background:var(--bg);color:var(--ink);font:16px/1.6 system-ui,sans-serif}}
+main{{max-width:900px;margin:auto;padding:36px 20px 72px}}a{{color:var(--accent)}}
+.intro,.claim{{background:var(--paper);border:1px solid var(--line);padding:18px 20px;margin:16px 0}}
+.claim header{{display:flex;gap:12px;align-items:center;color:var(--muted)}}.claim h3{{margin:.7rem 0}}
+.evidence{{padding-left:22px}}blockquote{{border-left:3px solid var(--line);margin:.5rem 0 1rem;padding-left:12px}}
+.muted,small{{color:var(--muted)}}
+</style></head><body><main>
+<h1>B站口播证据核查报告</h1>
+<p><a href="{html.escape(str(video.get('url') or ''))}">{html.escape(str(video.get('title') or ''))}</a>
+· {html.escape(str(video.get('bvid') or ''))}</p>
+<div class="intro">{html.escape(str(data.get('disclaimer') or ''))}</div>
+<h2>内容总结</h2><div class="intro">{summary or '未生成总结'}</div>
+<h2>声明核查（{len(claims)}）</h2>{''.join(cards) or '<p>没有提取到可核查声明。</p>'}
+</main></body></html>"""
 
 
-def dumps_json(report: dict[str, Any]) -> str:
-    return json.dumps(report, ensure_ascii=False, indent=2) + "\n"
+def dumps_json(report: AnalysisReport | dict[str, Any]) -> str:
+    return json.dumps(report_dict(report), ensure_ascii=False, indent=2) + "\n"

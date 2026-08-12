@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import json
 
+from bili_fact_checker.evidence.core import aggregate_verdict
 from bili_fact_checker.ingest import extract_bvid
+from bili_fact_checker.models import AtomicClaim, ClaimAnalysis
 from bili_fact_checker.report import build_report, to_markdown, dumps_json
 
 
@@ -13,7 +15,7 @@ def test_extract_bvid_from_url():
     assert extract_bvid("BV1EEGc6AErF/?spm=1") == "BV1EEGc6AErF"
 
 
-def test_report_schema_and_labels():
+def test_report_schema_and_abstention_language():
     transcript = {
         "bvid": "BV1TEST00001",
         "title": "测试视频",
@@ -24,47 +26,33 @@ def test_report_schema_and_labels():
         "text": "hello" * 10,
         "segments": [],
     }
+    claim = AtomicClaim(
+        id="claim_0001",
+        claim_zh="无法核实的公开断言",
+        claim_en="A public claim that could not be verified",
+        claim_type="其他",
+        quote="无法核实的公开断言",
+        anchor_segment_ids=["seg_00001"],
+        timestamp_sec=12,
+    )
     claims = [
-        {
-            "claim_zh": "地球是圆的",
-            "claim_en": "Earth is round",
-            "type": "其他",
-            "timestamp_sec": 12,
-            "has_sourced_evidence": True,
-            "judgment": {
-                "verdict": "supported",
-                "label": "sourced_web",
-                "rationale": "多来源一致",
-                "sources": ["https://example.com"],
-            },
-        },
-        {
-            "claim_zh": "无法核实的断言",
-            "claim_en": "unverifiable",
-            "type": "其他",
-            "timestamp_sec": 0,
-            "has_sourced_evidence": False,
-            "judgment": {
-                "verdict": "unverified",
-                "label": "model_inference",
-                "rationale": "无外部证据",
-                "sources": [],
-            },
-        },
+        ClaimAnalysis(claim=claim, verdict=aggregate_verdict([], [], []))
     ]
     report = build_report(
         transcript=transcript,
         summary="**概述**\n测试",
         claims=claims,
-        tasks=["summary", "verify"],
+        model="fixture-model",
+        search_providers=["none"],
     )
-    assert report["schema_version"] == "0.1"
-    assert report["stats"]["claim_count"] == 2
-    assert report["stats"]["sourced"] == 1
-    assert report["stats"]["model_inference"] == 1
+    data = report.model_dump(mode="json")
+    assert data["schema_version"] == "1.0"
+    assert data["stats"]["claim_count"] == 1
+    assert data["stats"]["insufficient_evidence"] == 1
     md = to_markdown(report)
-    assert "model_inference" in md
-    assert "辅助线索" in md
+    assert "insufficient_evidence" in md
+    assert "搜索结果摘要不计入证据" in md
+    assert "model_inference" not in md
     raw = dumps_json(report)
     assert json.loads(raw)["video"]["bvid"] == "BV1TEST00001"
 
