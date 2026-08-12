@@ -61,6 +61,10 @@ class Settings:
     cache_dir: Path
     search_cache_ttl_seconds: int
     page_cache_ttl_seconds: int
+    data_dir: Path
+    job_workers: int
+    job_queue_size: int
+    api_token: str
 
     @classmethod
     def from_env(cls) -> "Settings":
@@ -117,6 +121,17 @@ class Settings:
             page_cache_ttl_seconds=int(
                 _env("BFC_PAGE_CACHE_TTL", "604800")
             ),
+            data_dir=Path(
+                os.path.expanduser(
+                    _env(
+                        "BFC_DATA_DIR",
+                        str(Path.home() / ".local" / "share" / "bili-fact-checker"),
+                    )
+                )
+            ),
+            job_workers=max(1, int(_env("BFC_JOB_WORKERS", "2"))),
+            job_queue_size=max(0, int(_env("BFC_JOB_QUEUE_SIZE", "8"))),
+            api_token=_env("BFC_API_TOKEN"),
         )
 
     @property

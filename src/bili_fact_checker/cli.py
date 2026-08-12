@@ -37,6 +37,19 @@ def cmd_doctor(args: argparse.Namespace) -> int:
     return 0 if report.ready else 1
 
 
+def cmd_serve(args: argparse.Namespace) -> int:
+    import uvicorn
+
+    uvicorn.run(
+        "bili_fact_checker.api.app:create_app",
+        host=args.host,
+        port=args.port,
+        reload=False,
+        factory=True,
+    )
+    return 0
+
+
 def cmd_subtitle(args: argparse.Namespace) -> int:
     settings = Settings.from_env()
     if getattr(args, "transcript", None):
@@ -128,6 +141,11 @@ def build_parser() -> argparse.ArgumentParser:
     )
     doctor.add_argument("--json", action="store_true", help="print machine-readable JSON")
     doctor.set_defaults(func=cmd_doctor)
+
+    serve = sub.add_parser("serve", help="run the local API and web interface")
+    serve.add_argument("--host", default="127.0.0.1")
+    serve.add_argument("--port", type=int, default=8765)
+    serve.set_defaults(func=cmd_serve)
 
     common = argparse.ArgumentParser(add_help=False)
     common.add_argument("input", help="BV id or bilibili URL")

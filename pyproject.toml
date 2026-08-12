@@ -26,6 +26,7 @@ dev = ["pytest>=8.0"]
 
 [project.scripts]
 bili-fact-checker = "bili_fact_checker.cli:main"
+bili-fact-checker-server = "bili_fact_checker.api.app:main"
 
 [project.urls]
 Homepage = "https://github.com/T-64/bili-fact-checker"

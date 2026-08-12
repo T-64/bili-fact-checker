@@ -24,6 +24,10 @@ from bili_fact_checker.report import build_report
 LogFn = Callable[[str], None]
 
 
+class PipelineCancelled(RuntimeError):
+    pass
+
+
 def run_pipeline(
     settings: Settings,
     url_or_bvid: str,
@@ -34,10 +38,16 @@ def run_pipeline(
     transcript_file: str | None = None,
     page: int = 1,
     log: LogFn | None = None,
+    cancel_check: Callable[[], bool] | None = None,
 ) -> dict[str, Any]:
     tasks = tasks or ["summary", "verify"]
     _log = log or (lambda _m: None)
 
+    def check_cancelled() -> None:
+        if cancel_check is not None and cancel_check():
+            raise PipelineCancelled("analysis cancelled")
+
+    check_cancelled()
     if transcript_file:
         _log(f"ingest: loading external transcript {transcript_file}…")
         from bili_fact_checker.ingest import load_transcript_file
@@ -51,6 +61,7 @@ def run_pipeline(
             settings, url_or_bvid, lang=lang, asr=asr, page=page
         )
     _log(f"ingest: {transcript.bvid} · {transcript.title} · {transcript.source} · {len(transcript.text)} chars")
+    check_cancelled()
 
     summary_text: str | None = None
     raw_claims: list[dict[str, Any]] = []
@@ -58,12 +69,14 @@ def run_pipeline(
     if "summary" in tasks:
         _log("analyze: summarizing…")
         summary_text = summarize(settings, transcript)
+        check_cancelled()
 
     need_claims = "verify" in tasks or "claims" in tasks
     if need_claims:
         _log("analyze: extracting claims…")
         raw_claims = extract_claims(settings, transcript)
         _log(f"analyze: {len(raw_claims)} claims")
+        check_cancelled()
 
     claims = []
     events: list[AnalysisEvent] = []
@@ -89,6 +102,7 @@ def run_pipeline(
     )
 
     for raw_claim in raw_claims:
+        check_cancelled()
         try:
             claim = AtomicClaim.model_validate(raw_claim)
         except Exception as exc:
@@ -108,6 +122,7 @@ def run_pipeline(
             claims.append(result.analysis)
             events.extend(result.events)
             usages.extend(result.usage)
+            check_cancelled()
         else:
             from bili_fact_checker.evidence.core import aggregate_verdict
             from bili_fact_checker.models import ClaimAnalysis

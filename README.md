@@ -138,11 +138,17 @@ bili-fact-checker run "BVxxxxxxxx" --transcript ./from-videocaptioner.srt
 ### 本地网页 / API（可挂到 blog）
 
 ```bash
-uvicorn server.app:app --host 127.0.0.1 --port 8765
+bili-fact-checker serve
 # 浏览器打开 http://127.0.0.1:8765
 # POST /v1/analyze  {"bvid":"BVxxx","tasks":["summary","verify"]}
 # GET  /v1/jobs/{id}
 ```
+
+服务默认只监听 `127.0.0.1`。任务由有界队列执行并持久化到
+`~/.local/share/bili-fact-checker/jobs`；重启时未完成任务会标记为
+`interrupted`，可调用 `POST /v1/jobs/{id}/retry` 重试。另有任务历史、取消、
+JSON 报告和 HTML 报告接口。若要通过反向代理暴露，先设置强随机
+`BFC_API_TOKEN`，请求使用 `Authorization: Bearer ...`；不要无认证暴露到公网。
 
 自托管后把链接写进 blog 即可，见 [`docs/blog-integration.md`](docs/blog-integration.md)。
 
