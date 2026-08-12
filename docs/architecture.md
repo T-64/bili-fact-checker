@@ -117,8 +117,11 @@ source URLs is not evidence.
 ## Runtime and delivery
 
 - CLI and API call the same application service.
-- Jobs persist as JSON under a configurable data directory using atomic writes.
-- A bounded executor exposes progress events while a job is running.
+- Jobs persist under a configurable data directory using atomic state writes.
+  Startup marks incomplete work as `interrupted`, after which the original
+  redacted request can be retried.
+- A bounded executor exposes stage/log progress, cooperative cancellation,
+  history and report endpoints while a job is running.
 - The production container runs as a non-root user and uses a health check.
 - The default Docker Compose path reuses a supported AI provider and has no
   mandatory search container. SearXNG is an opt-in profile for users who want
