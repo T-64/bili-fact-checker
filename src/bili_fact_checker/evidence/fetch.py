@@ -5,11 +5,10 @@ from __future__ import annotations
 import hashlib
 import ipaddress
 import json
-import re
 import socket
 from dataclasses import dataclass
 from html.parser import HTMLParser
-from typing import Callable, Iterable
+from typing import Callable
 from urllib.parse import urljoin, urlsplit
 
 import httpx
@@ -26,6 +25,11 @@ from bili_fact_checker.models import (
     SearchCandidate,
     SourceQuality,
     utc_now,
+)
+from bili_fact_checker.evidence.rank import (
+    EvidenceReranker,
+    LexicalEvidenceReranker,
+    split_passages,
 )
 
 
@@ -370,18 +374,6 @@ def fetch_candidate(
     )
 
 
-def _search_terms(values: Iterable[str]) -> set[str]:
-    terms: set[str] = set()
-    for value in values:
-        lower = value.lower()
-        terms.update(re.findall(r"[a-z0-9][a-z0-9.-]{2,}", lower))
-        for run in re.findall(r"[\u3400-\u9fff]{2,}", lower):
-            if len(run) <= 6:
-                terms.add(run)
-            terms.update(run[index : index + 2] for index in range(len(run) - 1))
-    return {term for term in terms if term.strip()}
-
-
 def extract_relevant_excerpts(
     page: FetchedPage,
     *,
@@ -390,45 +382,30 @@ def extract_relevant_excerpts(
     entities: list[str] | None = None,
     first_id: int = 1,
     limit: int = 3,
+    reranker: EvidenceReranker | None = None,
 ) -> list[EvidenceExcerpt]:
     """Select exact retained passages; return none when relevance is absent."""
 
-    terms = _search_terms([claim_text, quote, *(entities or [])])
-    if not terms:
+    query = " ".join(
+        value.strip()
+        for value in [claim_text, quote, *(entities or [])]
+        if value.strip()
+    )
+    if not query:
         return []
-
-    spans: list[tuple[float, int, int, str]] = []
-    offset = 0
-    for line in page.text.splitlines(keepends=True):
-        raw = line.rstrip("\n")
-        start = offset
-        end = start + len(raw)
-        offset += len(line)
-        if len(raw) < 20:
-            continue
-        lower = raw.lower()
-        matches = {term for term in terms if term in lower}
-        if not matches:
-            continue
-        score = sum(min(len(term), 8) for term in matches)
-        density = score / max(len(raw), 80)
-        spans.append((score + density, start, end, raw))
-
+    ranker = reranker or LexicalEvidenceReranker()
+    ranked = ranker.rank(query, split_passages(page.text), limit=limit)
     selected: list[EvidenceExcerpt] = []
-    occupied: list[tuple[int, int]] = []
-    for _score, start, end, text in sorted(spans, reverse=True):
-        if any(not (end <= left or start >= right) for left, right in occupied):
-            continue
+    for item in ranked:
+        passage = item.passage
+        text = passage.text[:1600]
         selected.append(
             EvidenceExcerpt(
                 id=f"excerpt_{first_id + len(selected):05d}",
                 document_id=page.document.id,
-                text=text[:1600],
-                start_char=start,
-                end_char=min(end, start + 1600),
+                text=text,
+                start_char=passage.start_char,
+                end_char=passage.start_char + len(text),
             )
         )
-        occupied.append((start, end))
-        if len(selected) >= limit:
-            break
     return selected
