@@ -53,7 +53,8 @@ export OPENAI_MODEL='glm-4-flash'
 同一账号也支持 OpenAI、Gemini 和 Anthropic 的原生 LLM + 搜索协议；配置
 示例、自动识别边界和外部搜索回退见 [`docs/providers.md`](docs/providers.md)。
 
-还需要本机有 **`yt-dlp`**、**`ffmpeg`**（无字幕走 ASR 或你手动下音频时用到；有 CC 时字幕链路主要靠 B 站 API）。
+只有无字幕走本地 ASR 时才需要 **`yt-dlp`**、**`ffmpeg`**；有 CC 时字幕
+链路主要靠 B 站 API。`yt-dlp` 会随 `[asr]` extra 安装，`ffmpeg` 仍由系统安装。
 
 只有高级或自托管场景才需要额外搜索配置：
 
@@ -151,6 +152,21 @@ JSON 报告和 HTML 报告接口。若要通过反向代理暴露，先设置强
 `BFC_API_TOKEN`，请求使用 `Authorization: Bearer ...`；不要无认证暴露到公网。
 
 自托管后把链接写进 blog 即可，见 [`docs/blog-integration.md`](docs/blog-integration.md)。
+
+### Docker / Compose
+
+默认 Compose 不需要单独的搜索服务，仍复用已配置 AI provider 的原生搜索：
+
+```bash
+cp .env.example .env  # 填入 key、model 和可选的 BILI_SESSDATA
+docker compose up -d --build
+# 仅宿主机可访问：http://127.0.0.1:8765
+```
+
+容器以非 root 用户运行，状态保存在 `bfc-data` volume。要主动选择自托管
+SearXNG 时，再把 `.env` 设为 `SEARCH_PROVIDER=searxng`、
+`SEARXNG_URL=http://searxng:8080`，并运行
+`docker compose --profile searxng up -d --build`。
 
 ### Agent Skill
 

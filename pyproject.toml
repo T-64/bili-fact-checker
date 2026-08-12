@@ -20,7 +20,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-asr = ["faster-whisper>=1.0"]
+asr = ["faster-whisper>=1.0", "yt-dlp>=2025.1"]
 local-ml = ["sentence-transformers>=3,<6"]
 dev = ["pytest>=8.0"]
 
@@ -34,6 +34,9 @@ Repository = "https://github.com/T-64/bili-fact-checker"
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.setuptools.package-data]
+bili_fact_checker = ["web_dist/*.html", "web_dist/assets/*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

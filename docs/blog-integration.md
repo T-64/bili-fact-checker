@@ -8,12 +8,14 @@
 
 ```bash
 cd bili-fact-checker
-pip install -e .
-export BILI_SESSDATA=... OPENAI_API_KEY=... GOOGLE_FACTCHECK_API_KEY=...
-uvicorn server.app:app --host 127.0.0.1 --port 8765
+pip install .
+export BILI_SESSDATA=... OPENAI_API_KEY=...
+export BFC_API_TOKEN='一个强随机令牌'
+bili-fact-checker serve
 ```
 
-2. 用 Tailscale serve / Caddy / 反代把 `8765` 暴露给你自己（建议 tailnet-only，不要公网裸奔 cookie）。
+2. 用 Tailscale serve / Caddy / 反代把 `8765` 暴露给你自己（建议
+   tailnet-only）。非回环访问必须设置 `BFC_API_TOKEN`，不要公网裸奔凭证。
 
 3. Blog 文章或导航里放：
 
