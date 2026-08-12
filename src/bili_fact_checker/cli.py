@@ -9,6 +9,7 @@ from pathlib import Path
 
 from bili_fact_checker import __version__
 from bili_fact_checker.config import Settings
+from bili_fact_checker.diagnostics import run_doctor
 from bili_fact_checker.ingest import (
     extract_bvid,
     fetch_transcript,
@@ -22,6 +23,18 @@ from bili_fact_checker.report import dumps_json, to_html, to_markdown
 
 def _err(msg: str) -> None:
     print(msg, file=sys.stderr)
+
+
+def cmd_doctor(args: argparse.Namespace) -> int:
+    report = run_doctor(Settings.from_env())
+    if args.json:
+        print(json.dumps(report.to_dict(), ensure_ascii=False, indent=2))
+    else:
+        labels = {"ok": "OK", "warning": "WARN", "error": "ERROR"}
+        for check in report.checks:
+            print(f"[{labels[check.status]}] {check.name}: {check.message}")
+        print("\n可以开始运行。" if report.ready else "\n配置尚未就绪。")
+    return 0 if report.ready else 1
 
 
 def cmd_subtitle(args: argparse.Namespace) -> int:
@@ -109,6 +122,12 @@ def build_parser() -> argparse.ArgumentParser:
     )
     p.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
     sub = p.add_subparsers(dest="command", required=True)
+
+    doctor = sub.add_parser(
+        "doctor", help="check configuration without making paid API calls"
+    )
+    doctor.add_argument("--json", action="store_true", help="print machine-readable JSON")
+    doctor.set_defaults(func=cmd_doctor)
 
     common = argparse.ArgumentParser(add_help=False)
     common.add_argument("input", help="BV id or bilibili URL")
