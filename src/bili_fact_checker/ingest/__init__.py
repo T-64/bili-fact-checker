@@ -21,6 +21,7 @@ class Segment:
     start: float
     end: float
     text: str
+    id: str = ""
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -35,6 +36,11 @@ class Transcript:
     source: str  # cc | asr
     language: str
     segments: list[Segment] = field(default_factory=list)
+
+    def __post_init__(self) -> None:
+        for index, segment in enumerate(self.segments, 1):
+            if not segment.id:
+                segment.id = f"seg_{index:05d}"
 
     @property
     def text(self) -> str:
