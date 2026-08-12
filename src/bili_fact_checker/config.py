@@ -58,6 +58,9 @@ class Settings:
     fetch_timeout_seconds: float
     evidence_reranker: str
     evidence_reranker_model: str
+    cache_dir: Path
+    search_cache_ttl_seconds: int
+    page_cache_ttl_seconds: int
 
     @classmethod
     def from_env(cls) -> "Settings":
@@ -99,6 +102,20 @@ class Settings:
             evidence_reranker_model=_env(
                 "BFC_EVIDENCE_RERANKER_MODEL",
                 "BAAI/bge-reranker-v2-m3",
+            ),
+            cache_dir=Path(
+                os.path.expanduser(
+                    _env(
+                        "BFC_CACHE_DIR",
+                        str(Path.home() / ".cache" / "bili-fact-checker"),
+                    )
+                )
+            ),
+            search_cache_ttl_seconds=int(
+                _env("BFC_SEARCH_CACHE_TTL", "86400")
+            ),
+            page_cache_ttl_seconds=int(
+                _env("BFC_PAGE_CACHE_TTL", "604800")
             ),
         )
 

@@ -25,7 +25,7 @@ class EmptySearchProvider:
 
 
 def test_runtime_pipeline_emits_v1_and_abstains_without_fetched_evidence(
-    monkeypatch,
+    monkeypatch, tmp_path,
 ):
     transcript = Transcript(
         bvid="BV1TEST00001",
@@ -67,6 +67,7 @@ def test_runtime_pipeline_emits_v1_and_abstains_without_fetched_evidence(
         Settings.from_env(),
         max_searches_per_claim=1,
         max_searches_per_run=1,
+        cache_dir=tmp_path,
     )
 
     report = run_pipeline(settings, transcript.bvid, tasks=["verify"], asr=False)
