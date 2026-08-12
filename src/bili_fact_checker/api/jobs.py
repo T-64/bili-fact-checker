@@ -9,6 +9,7 @@ import re
 import threading
 import uuid
 from concurrent.futures import ThreadPoolExecutor
+from dataclasses import replace
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable
@@ -173,8 +174,32 @@ class JobManager:
                     self._persist(job)
 
             request = copy.deepcopy(self._jobs[job_id]["request"])
+            preset = str(request.get("preset") or "balanced")
+            run_settings = self.settings
+            if preset == "fast":
+                run_settings = replace(
+                    self.settings,
+                    max_claims=min(self.settings.max_claims, 6),
+                    max_searches_per_claim=min(
+                        self.settings.max_searches_per_claim, 1
+                    ),
+                    max_searches_per_run=min(
+                        self.settings.max_searches_per_run, 6
+                    ),
+                )
+            elif preset == "balanced":
+                run_settings = replace(
+                    self.settings,
+                    max_claims=min(self.settings.max_claims, 10),
+                    max_searches_per_claim=min(
+                        self.settings.max_searches_per_claim, 2
+                    ),
+                    max_searches_per_run=min(
+                        self.settings.max_searches_per_run, 20
+                    ),
+                )
             report = self._runner(
-                self.settings,
+                run_settings,
                 request["bvid"],
                 tasks=request.get("tasks"),
                 lang=request.get("lang", "zh-CN"),

@@ -26,6 +26,7 @@ class AnalyzeRequest(BaseModel):
     lang: str = Field(default="zh-CN", max_length=20)
     asr: bool = True
     page: int = Field(default=1, ge=1, le=10_000)
+    preset: str = Field(default="balanced", pattern=r"^(fast|balanced|strict)$")
 
     @field_validator("tasks")
     @classmethod
@@ -86,6 +87,34 @@ def create_app(
             "max_searches_per_run": configured.max_searches_per_run,
         }
         report["authentication_required"] = bool(configured.api_token)
+        report["presets"] = {
+            "fast": {
+                "label": "快速审阅",
+                "max_claims": min(configured.max_claims, 6),
+                "max_searches_per_claim": min(
+                    configured.max_searches_per_claim, 1
+                ),
+                "max_searches_per_run": min(
+                    configured.max_searches_per_run, 6
+                ),
+            },
+            "balanced": {
+                "label": "均衡核查",
+                "max_claims": min(configured.max_claims, 10),
+                "max_searches_per_claim": min(
+                    configured.max_searches_per_claim, 2
+                ),
+                "max_searches_per_run": min(
+                    configured.max_searches_per_run, 20
+                ),
+            },
+            "strict": {
+                "label": "严格核查",
+                "max_claims": configured.max_claims,
+                "max_searches_per_claim": configured.max_searches_per_claim,
+                "max_searches_per_run": configured.max_searches_per_run,
+            },
+        }
         return report
 
     @application.post(

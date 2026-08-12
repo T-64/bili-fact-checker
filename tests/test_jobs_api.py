@@ -180,6 +180,56 @@ def test_api_auth_status_and_report_flow(tmp_path):
                 assert report.status_code == 200
                 assert report.json()["video"]["bvid"] == "BV1TEST00001"
 
+                invalid = await client.post(
+                    "/v1/analyze",
+                    headers=headers,
+                    json={"bvid": "BV1TEST00001", "preset": "unlimited"},
+                )
+                assert invalid.status_code == 422
+
         asyncio.run(scenario())
     finally:
         manager.shutdown()
+
+
+def test_fast_preset_applies_real_server_side_limits(tmp_path):
+    observed = {}
+
+    def runner(run_settings, bvid, *, log, **_kwargs):
+        observed.update(
+            max_claims=run_settings.max_claims,
+            per_claim=run_settings.max_searches_per_claim,
+            total=run_settings.max_searches_per_run,
+        )
+        return minimal_report(bvid)
+
+    configured = settings(
+        tmp_path,
+        max_claims=15,
+        max_searches_per_claim=3,
+        max_searches_per_run=30,
+    )
+    manager = JobManager(configured, runner=runner)
+    try:
+        job = manager.submit({"bvid": "BV1TEST00001", "preset": "fast"})
+        wait_for_status(manager, job["id"], {"done"})
+        assert observed == {"max_claims": 6, "per_claim": 1, "total": 6}
+    finally:
+        manager.shutdown()
+
+
+def test_packaged_web_ui_contains_primary_accessible_controls():
+    import bili_fact_checker.api.app as app_module
+
+    path = (
+        app_module.Path(app_module.__file__).resolve().parent.parent
+        / "web_dist"
+        / "index.html"
+    )
+    content = path.read_text(encoding="utf-8")
+
+    assert "证据台 · B站口播核查" in content
+    assert 'id="analyzeForm"' in content
+    assert 'label for="bvid"' in content
+    assert 'aria-label="核查模式"' in content
+    assert 'id="auditContent"' in content
