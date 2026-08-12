@@ -50,6 +50,9 @@ export OPENAI_MODEL='glm-4-flash'
 同一套 API base/key 调用结构化 Web Search，不要求再申请一套搜索服务。
 原生联网搜索可能被供应商单独计费，请在供应商控制台核对规则。
 
+同一账号也支持 OpenAI、Gemini 和 Anthropic 的原生 LLM + 搜索协议；配置
+示例、自动识别边界和外部搜索回退见 [`docs/providers.md`](docs/providers.md)。
+
 还需要本机有 **`yt-dlp`**、**`ffmpeg`**（无字幕走 ASR 或你手动下音频时用到；有 CC 时字幕链路主要靠 B 站 API）。
 
 只有高级或自托管场景才需要额外搜索配置：
