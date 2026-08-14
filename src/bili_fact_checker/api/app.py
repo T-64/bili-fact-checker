@@ -14,8 +14,19 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from bili_fact_checker import __version__
 from bili_fact_checker.api.jobs import JobManager, JobNotFoundError, QueueFullError
-from bili_fact_checker.config import Settings
+from bili_fact_checker.config import Settings, apply_setup, clear_user_config, setup_status
 from bili_fact_checker.diagnostics import run_doctor
+from bili_fact_checker.ingest import extract_bvid, fetch_video_info
+
+
+class SetupRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    openai_api_base: str = Field(default="", max_length=300)
+    openai_api_key: str = Field(default="", max_length=2000)
+    openai_model: str = Field(default="", max_length=200)
+    sessdata: str = Field(default="", max_length=4000)
+    persist: bool = False
 
 
 class AnalyzeRequest(BaseModel):
@@ -59,11 +70,24 @@ def create_app(
     application.state.settings = configured
     application.state.jobs = jobs
 
+    def current_settings() -> Settings:
+        return application.state.settings
+
+    def replace_settings(next_settings: Settings) -> None:
+        application.state.settings = next_settings
+        jobs.settings = next_settings
+
     async def authorize(authorization: str | None = Header(default=None)) -> None:
-        if not configured.api_token:
+        token = current_settings().api_token
+        if not token:
             return
-        expected = f"Bearer {configured.api_token}"
-        if authorization is None or not hmac.compare_digest(authorization, expected):
+        expected = f"Bearer {token}"
+        provided = authorization or ""
+        try:
+            matches = hmac.compare_digest(provided, expected)
+        except (TypeError, ValueError):
+            matches = False
+        if not matches:
             raise HTTPException(401, "missing or invalid bearer token")
 
     def find_job(job_id: str) -> dict[str, Any]:
@@ -76,43 +100,95 @@ def create_app(
     async def health() -> dict[str, str]:
         return {"status": "ok", "version": __version__}
 
+    @application.get("/v1/setup", dependencies=[Depends(authorize)])
+    async def get_setup() -> dict[str, Any]:
+        return setup_status(current_settings())
+
+    @application.put("/v1/setup", dependencies=[Depends(authorize)])
+    async def put_setup(request: SetupRequest) -> dict[str, Any]:
+        updates = {
+            "openai_api_base": request.openai_api_base.strip(),
+            "openai_api_key": request.openai_api_key.strip(),
+            "openai_model": request.openai_model.strip(),
+            "sessdata": request.sessdata.strip(),
+        }
+        try:
+            merged = apply_setup(current_settings(), updates, persist=False)
+        except ValueError as exc:
+            raise HTTPException(400, str(exc)) from exc
+        if request.persist:
+            apply_setup(merged, {}, persist=True)
+        replace_settings(merged)
+        status = setup_status(merged)
+        status["ready"] = run_doctor(merged).ready
+        status["persisted"] = request.persist
+        return status
+
+    @application.delete("/v1/setup", dependencies=[Depends(authorize)])
+    async def delete_setup() -> dict[str, Any]:
+        clear_user_config()
+        replace_settings(Settings.from_env())
+        status = setup_status(current_settings())
+        status["ready"] = run_doctor(current_settings()).ready
+        status["cleared"] = True
+        return status
+
+    @application.get("/v1/video", dependencies=[Depends(authorize)])
+    async def video_info(bvid: str = Query(min_length=5, max_length=300)) -> dict[str, Any]:
+        try:
+            extracted = extract_bvid(bvid)
+            metadata = fetch_video_info(current_settings(), extracted)
+        except ValueError as exc:
+            raise HTTPException(400, str(exc)) from exc
+        except Exception:
+            raise HTTPException(502, "failed to fetch video metadata") from None
+        return {
+            "bvid": metadata.bvid,
+            "title": metadata.title,
+            "parts": [
+                {"page": part.page, "title": part.title} for part in metadata.parts
+            ],
+        }
+
     @application.get("/v1/status", dependencies=[Depends(authorize)])
     async def status() -> dict[str, Any]:
-        report = run_doctor(configured).to_dict()
+        active = current_settings()
+        report = run_doctor(active).to_dict()
         report["limits"] = {
-            "workers": configured.job_workers,
-            "queue_size": configured.job_queue_size,
-            "max_claims": configured.max_claims,
-            "max_searches_per_claim": configured.max_searches_per_claim,
-            "max_searches_per_run": configured.max_searches_per_run,
+            "workers": active.job_workers,
+            "queue_size": active.job_queue_size,
+            "max_claims": active.max_claims,
+            "max_searches_per_claim": active.max_searches_per_claim,
+            "max_searches_per_run": active.max_searches_per_run,
         }
-        report["authentication_required"] = bool(configured.api_token)
+        report["authentication_required"] = bool(active.api_token)
+        report["setup"] = setup_status(active)
         report["presets"] = {
             "fast": {
                 "label": "快速审阅",
-                "max_claims": min(configured.max_claims, 6),
+                "max_claims": min(active.max_claims, 6),
                 "max_searches_per_claim": min(
-                    configured.max_searches_per_claim, 1
+                    active.max_searches_per_claim, 1
                 ),
                 "max_searches_per_run": min(
-                    configured.max_searches_per_run, 6
+                    active.max_searches_per_run, 6
                 ),
             },
             "balanced": {
                 "label": "均衡核查",
-                "max_claims": min(configured.max_claims, 10),
+                "max_claims": min(active.max_claims, 10),
                 "max_searches_per_claim": min(
-                    configured.max_searches_per_claim, 2
+                    active.max_searches_per_claim, 2
                 ),
                 "max_searches_per_run": min(
-                    configured.max_searches_per_run, 20
+                    active.max_searches_per_run, 20
                 ),
             },
             "strict": {
                 "label": "严格核查",
-                "max_claims": configured.max_claims,
-                "max_searches_per_claim": configured.max_searches_per_claim,
-                "max_searches_per_run": configured.max_searches_per_run,
+                "max_claims": active.max_claims,
+                "max_searches_per_claim": active.max_searches_per_claim,
+                "max_searches_per_run": active.max_searches_per_run,
             },
         }
         return report

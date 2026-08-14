@@ -16,7 +16,8 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PIP_DISABLE_PIP_VERSION_CHECK=1 \
     PIP_NO_CACHE_DIR=1 \
     BFC_DATA_DIR=/data \
-    BFC_CACHE_DIR=/data/cache
+    BFC_CACHE_DIR=/data/cache \
+    BFC_CONFIG_PATH=/data/config.json
 
 RUN groupadd --gid 10001 bfc \
     && useradd --uid 10001 --gid bfc --create-home --shell /usr/sbin/nologin bfc \

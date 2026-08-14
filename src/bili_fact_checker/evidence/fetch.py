@@ -6,6 +6,7 @@ import hashlib
 import ipaddress
 import json
 import socket
+import time
 from dataclasses import dataclass
 from html.parser import HTMLParser
 from typing import Callable
@@ -299,30 +300,70 @@ def fetch_candidate(
     try:
         for _ in range(max_redirects + 1):
             validate_public_url(current)
-            with client.stream("GET", current) as response:
-                if response.status_code in {301, 302, 303, 307, 308}:
-                    location = response.headers.get("location")
-                    if not location:
-                        raise PageFetchError("redirect response has no location")
-                    current = urljoin(current, location)
-                    continue
-                response.raise_for_status()
-                content_type = response.headers.get("content-type", "").lower()
-                if not any(value in content_type for value in ("text/html", "text/plain")):
-                    raise PageFetchError(f"unsupported content type: {content_type or 'unknown'}")
-                chunks: list[bytes] = []
-                total = 0
-                for chunk in response.iter_bytes():
-                    total += len(chunk)
-                    if total > max_bytes:
-                        raise PageFetchError("page exceeds configured byte limit")
-                    chunks.append(chunk)
-                body = b"".join(chunks)
-                final_url = str(response.url)
-                break
+            last_error: Exception | None = None
+            redirected = False
+            for attempt in range(3):
+                try:
+                    with client.stream("GET", current) as response:
+                        if response.status_code in {301, 302, 303, 307, 308}:
+                            location = response.headers.get("location")
+                            if not location:
+                                raise PageFetchError("redirect response has no location")
+                            current = urljoin(current, location)
+                            redirected = True
+                            break
+                        if response.status_code in {429, 500, 502, 503, 504}:
+                            raise httpx.HTTPStatusError(
+                                f"retryable status {response.status_code}",
+                                request=response.request,
+                                response=response,
+                            )
+                        response.raise_for_status()
+                        content_type = response.headers.get("content-type", "").lower()
+                        if not any(
+                            value in content_type
+                            for value in ("text/html", "text/plain")
+                        ):
+                            raise PageFetchError(
+                                f"unsupported content type: {content_type or 'unknown'}"
+                            )
+                        chunks: list[bytes] = []
+                        total = 0
+                        for chunk in response.iter_bytes():
+                            total += len(chunk)
+                            if total > max_bytes:
+                                raise PageFetchError("page exceeds configured byte limit")
+                            chunks.append(chunk)
+                        body = b"".join(chunks)
+                        final_url = str(response.url)
+                        redirected = False
+                        last_error = None
+                        break
+                except (httpx.TimeoutException, httpx.ConnectError) as exc:
+                    last_error = exc
+                    if attempt == 2:
+                        raise PageFetchError(str(exc)) from exc
+                    time.sleep(0.2 * (2 ** attempt))
+                except httpx.HTTPStatusError as exc:
+                    last_error = exc
+                    retryable = (
+                        exc.response is not None
+                        and exc.response.status_code in {429, 500, 502, 503, 504}
+                    )
+                    if not retryable or attempt == 2:
+                        raise PageFetchError(str(exc)) from exc
+                    time.sleep(0.2 * (2 ** attempt))
+            else:
+                if last_error is not None:
+                    raise PageFetchError(str(last_error)) from last_error
+            if redirected:
+                continue
+            break
         else:
             raise PageFetchError("too many redirects")
-    except (httpx.HTTPError, UnsafeUrlError) as exc:
+    except UnsafeUrlError:
+        raise
+    except httpx.HTTPError as exc:
         raise PageFetchError(str(exc)) from exc
     finally:
         if owned_client:

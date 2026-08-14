@@ -5,13 +5,20 @@ from __future__ import annotations
 import os
 import shutil
 import sys
+import json
 from importlib.util import find_spec
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Literal
 from urllib.parse import urlsplit
 
-from bili_fact_checker.config import Settings
+from bili_fact_checker import __version__
+from bili_fact_checker.config import (
+    Settings,
+    load_user_config,
+    user_config_error,
+    user_config_path,
+)
 from bili_fact_checker.providers.llm import build_llm_provider
 from bili_fact_checker.providers.search import (
     UnavailableSearchProvider,
@@ -54,7 +61,12 @@ def _writable_parent(path: Path) -> Path | None:
 def run_doctor(settings: Settings) -> DoctorReport:
     """Inspect local configuration without contacting an API or Bilibili."""
 
+    load_user_config()
     checks: list[DoctorCheck] = []
+    config_problem = user_config_error()
+    if config_problem:
+        checks.append(DoctorCheck("config", "error", config_problem))
+
     if sys.version_info >= (3, 11):
         checks.append(
             DoctorCheck("python", "ok", f"Python {sys.version_info.major}.{sys.version_info.minor}")
@@ -166,3 +178,42 @@ def run_doctor(settings: Settings) -> DoctorReport:
         search_provider=search_name,
         search_native_to_llm=native_search,
     )
+
+
+def _redact(value: str, settings: Settings) -> str:
+    for secret in (
+        settings.openai_api_key,
+        settings.search_api_key,
+        settings.tavily_api_key,
+        settings.sessdata,
+        settings.api_token,
+        settings.google_factcheck_api_key,
+    ):
+        if secret:
+            value = value.replace(secret, "[redacted]")
+    return value
+
+
+def build_support_bundle(settings: Settings) -> dict[str, object]:
+    """Export redacted diagnostics for issue reports. Never includes secrets."""
+
+    report = run_doctor(settings)
+    payload = {
+        "version": __version__,
+        "python": f"{sys.version_info.major}.{sys.version_info.minor}",
+        "config_path": str(user_config_path()),
+        "config_error": user_config_error(),
+        "data_dir": str(settings.data_dir),
+        "cache_dir": str(settings.cache_dir),
+        "llm_provider": report.llm_provider,
+        "search_provider": report.search_provider,
+        "search_native_to_llm": report.search_native_to_llm,
+        "ready": report.ready,
+        "checks": [asdict(item) for item in report.checks],
+        "openai_api_base": settings.openai_api_base,
+        "openai_model": settings.openai_model,
+        "has_api_key": bool(settings.openai_api_key),
+        "has_sessdata": bool(settings.sessdata),
+    }
+    rendered = json.dumps(payload, ensure_ascii=False)
+    return json.loads(_redact(rendered, settings))

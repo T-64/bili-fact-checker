@@ -24,7 +24,8 @@ bili-fact-checker serve
 <a href="https://your-host/">B站口播事实核查</a>
 ```
 
-用户打开后即见 `web/index.html`：贴 BV → 出报告。
+用户打开后即见随包分发的证据台（`src/bili_fact_checker/web_dist/index.html`）：
+先配置提供商，再贴 BV → 出报告。
 
 ## 仅嵌入报告
 

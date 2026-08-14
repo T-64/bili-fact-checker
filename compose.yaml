@@ -16,12 +16,25 @@ services:
       TAVILY_API_KEY: ${TAVILY_API_KEY:-}
       BILI_SESSDATA: ${BILI_SESSDATA:-}
       BFC_API_TOKEN: ${BFC_API_TOKEN:?Set a random BFC_API_TOKEN of at least 32 characters}
+      BFC_CONFIG_PATH: ${BFC_CONFIG_PATH:-/data/config.json}
       SEARXNG_URL: ${SEARXNG_URL:-}
       HTTP_PROXY: ${HTTP_PROXY:-}
       HTTPS_PROXY: ${HTTPS_PROXY:-}
       NO_PROXY: ${NO_PROXY:-127.0.0.1,localhost,searxng}
     volumes:
       - bfc-data:/data
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8765/health', timeout=3)",
+        ]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
     security_opt:
       - no-new-privileges:true
     cap_drop:

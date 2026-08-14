@@ -24,11 +24,9 @@ BV / 链接
 
 ---
 
-## 依赖怎么配
+## 五分钟起步
 
-分三层。**有字幕的视频**其实可以只装基础依赖。
-
-### 1. 必装（跑通「有 CC 的视频」）
+有字幕的视频只需要基础依赖和一个 AI 提供商。
 
 ```bash
 git clone https://github.com/T-64/bili-fact-checker.git
@@ -36,22 +34,29 @@ cd bili-fact-checker
 python3 -m venv .venv && source .venv/bin/activate
 pip install -e .
 
-# 凭证（勿提交进 git）
-export BILI_SESSDATA='你的SESSDATA'          # 或写入 ~/.config/bili/SESSDATA
-# 注意：很多视频的 CC/AI 字幕必须登录才能通过 API 拉取。
-# 若 bili-fact-checker list 显示 NOT LOGGED IN / need_login_subtitle，
-# 说明 Cookie 过期——请从浏览器更新 SESSDATA（不要当成「视频没字幕」）。
-export OPENAI_API_KEY='...'                  # 也可用 GLM_API_KEY / ~/.hermes/.env
-export OPENAI_API_BASE='https://api.z.ai/api/paas/v4'   # OpenAI 兼容；可改
-export OPENAI_MODEL='glm-4-flash'
+# 交互写入本机配置（权限 0600）。密钥不会进入报告。
+bili-fact-checker setup --save
+bili-fact-checker doctor
+bili-fact-checker serve
+# 浏览器打开 http://127.0.0.1:8765
 ```
 
-默认 `SEARCH_PROVIDER=auto`。使用 Z.AI/智谱端点时，核查流程会复用上面
-同一套 API base/key 调用结构化 Web Search，不要求再申请一套搜索服务。
-原生联网搜索可能被供应商单独计费，请在供应商控制台核对规则。
+也可以先 `bili-fact-checker serve`，在网页里填首次配置表单。环境变量始终
+覆盖配置文件。完整变量列表见 [`.env.example`](.env.example)。
 
-同一账号也支持 OpenAI、Gemini 和 Anthropic 的原生 LLM + 搜索协议；配置
-示例、自动识别边界和外部搜索回退见 [`docs/providers.md`](docs/providers.md)。
+很多视频的 CC/AI 字幕必须登录才能拉取。若 `bili-fact-checker list` 显示
+`NOT LOGGED IN` / `need_login_subtitle`，从浏览器更新 `SESSDATA`（不要当成
+「视频没字幕」）。`setup` 可以一并保存 Cookie，或继续用：
+
+```bash
+export BILI_SESSDATA='你的SESSDATA'   # 或写入 ~/.config/bili/SESSDATA
+```
+
+默认 `SEARCH_PROVIDER=auto`。使用 Z.AI/智谱、OpenAI、Gemini 或 Anthropic
+时，核查流程会复用同一套 API base/key 做原生搜索，不要求再申请一套搜索服务。
+原生联网搜索可能被供应商单独计费，请在供应商控制台核对规则。未知的
+OpenAI 兼容端点不会被当成带搜索工具。配置示例见
+[`docs/providers.md`](docs/providers.md)。
 
 只有无字幕走本地 ASR 时才需要 **`yt-dlp`**、**`ffmpeg`**；有 CC 时字幕
 链路主要靠 B 站 API。`yt-dlp` 会随 `[asr]` extra 安装，`ffmpeg` 仍由系统安装。
@@ -65,13 +70,8 @@ export SEARXNG_URL='http://127.0.0.1:8080'
 # 需要代理时再自行设置 HTTP_PROXY / HTTPS_PROXY；项目没有隐式代理。
 ```
 
-完整变量列表见 [`.env.example`](.env.example)。
-
-配置后先运行本地诊断；它只检查配置和文件，**不会调用模型或搜索 API**：
-
-```bash
-bili-fact-checker doctor
-```
+`doctor` 只检查配置和文件，**不会调用模型或搜索 API**。排错见
+[`docs/troubleshooting.md`](docs/troubleshooting.md)。
 
 ### 2. 本地 Whisper（可选）
 
@@ -186,11 +186,15 @@ SearXNG 时，再把 `.env` 设为 `SEARCH_PROVIDER=searxng`、
 ## 项目结构
 
 ```text
-src/bili_fact_checker/   # 核心库（ingest / analyze / evidence / report）
-server/                  # FastAPI
-web/                     # 极简前端
+src/bili_fact_checker/   # 核心库、CLI、FastAPI、静态 UI
+  api/                   # /v1/setup、/v1/analyze、任务与报告
+  evidence/              # 搜索、安全抓取、摘录、确定性裁决
+  ingest/                # B 站元数据 / 字幕 / 可选 ASR
+  providers/             # LLM 与原生搜索适配
+  web_dist/index.html    # 随 wheel 分发的静态证据台
 skills/bili-fact-checker/
-examples/                # 示例报告
+examples/                # schema 1.0 示例报告
+docs/                    # 架构、提供商、排错、schema
 ```
 
 ---
@@ -206,9 +210,14 @@ examples/                # 示例报告
 
 ---
 
-## 许可与免责
+## 许可、隐私与免责
 
 MIT。第三方组件遵循各自许可证。
+
+密钥、`SESSDATA` 和 API token 不会写入报告、任务日志或 `doctor --output`
+support bundle。配置文件只在你显式保存时创建（默认
+`~/.config/bili-fact-checker/config.json`，权限 `0600`）。环境变量始终覆盖
+文件。Docker 把该文件放在 `/data/config.json`（`bfc-data` volume）。
 
 模型、检索和来源页面都可能出错或过时。请核对视频原话、精确引文和来源页面；
 `insufficient_evidence` 表示系统选择弃权，不表示声明为真或为假。

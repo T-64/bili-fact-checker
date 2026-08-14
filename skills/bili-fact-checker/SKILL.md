@@ -8,7 +8,9 @@ description: >-
 
 # bili-fact-checker
 
-B站口播内容分析与可举证事实核查。报告必须区分 **sourced_factcheck / sourced_web / model_inference**。
+B站口播内容分析与可举证事实核查。报告结论只有
+`supported` / `refuted` / `disputed` / `insufficient_evidence`。
+搜索摘要和模型记忆不是证据。
 
 ## When to use
 
@@ -17,29 +19,33 @@ B站口播内容分析与可举证事实核查。报告必须区分 **sourced_fa
 
 ## Prerequisites
 
-See repo README / `.env.example`:
+One AI provider is enough. Native search reuses that account when the
+provider is Z.AI, OpenAI, Gemini, or Anthropic.
 
-- Required: `BILI_SESSDATA`, OpenAI-compatible LLM key
-- Recommended: `GOOGLE_FACTCHECK_API_KEY`, `SEARXNG_URL` or `TAVILY_API_KEY`
-- Subtitles: B站 CC first; else local `faster-whisper` + `WHISPER_MODEL`; else `--transcript file.srt` (e.g. from VideoCaptioner)
+```bash
+bili-fact-checker setup --save
+bili-fact-checker doctor
+```
+
+Optional: `BILI_SESSDATA` for login-gated subtitles. Local Whisper is only
+needed when a video has no CC/AI captions; otherwise pass `--transcript file.srt`.
+SearXNG / Tavily are optional fallbacks, not required.
 
 ## Commands
 
 ```bash
 bili-fact-checker run "BVxxxxxxxx" --print-md
 bili-fact-checker subtitle "BVxxxxxxxx" -o out.srt
-bili-fact-checker run "BVxxxxxxxx" --transcript ./out.srt   # no local Whisper
+bili-fact-checker run "BVxxxxxxxx" --transcript ./out.srt
 bili-fact-checker summarize "BVxxxxxxxx"
 bili-fact-checker verify "BVxxxxxxxx"
+bili-fact-checker serve
 ```
 
-Local API:
-
-```bash
-uvicorn server.app:app --host 127.0.0.1 --port 8765
-```
+Local UI/API: `http://127.0.0.1:8765`. Do not start `uvicorn server.app:app`.
 
 ## Output
 
-- `judgment.label`: `sourced_factcheck` | `sourced_web` | `model_inference`
-- Treat results as leads, not final truth. Never present `model_inference` as verified.
+- `verdict.verdict`: `supported` | `refuted` | `disputed` | `insufficient_evidence`
+- Treat results as an audit aid. Never present `insufficient_evidence` as true
+  or false, and never treat search snippets as citations.

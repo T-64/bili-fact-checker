@@ -12,6 +12,7 @@ from bili_fact_checker.providers.search import (
     OpenAISearchProvider,
     SearchRequest,
     SearchUnavailableError,
+    SearchBudgetError,
     SearxngSearchProvider,
     UnavailableSearchProvider,
     ZaiSearchProvider,
@@ -361,6 +362,6 @@ def test_run_wide_search_budget_is_enforced_before_extra_provider_call():
     budgeted = BudgetedSearchProvider(Provider(), max_calls=1)
     request = SearchRequest(query_id="query_0001_01", text="测试查询")
     budgeted.search(request)
-    with pytest.raises(SearchUnavailableError, match="budget exhausted"):
+    with pytest.raises(SearchBudgetError, match="budget exhausted"):
         budgeted.search(request)
     assert calls == 1

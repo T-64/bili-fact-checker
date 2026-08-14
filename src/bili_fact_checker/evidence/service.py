@@ -13,6 +13,7 @@ from bili_fact_checker.evidence.core import aggregate_verdict, validate_assessme
 from bili_fact_checker.evidence.fetch import (
     FetchedPage,
     PageFetchError,
+    UnsafeUrlError,
     extract_relevant_excerpts,
     fetch_candidate,
 )
@@ -34,9 +35,11 @@ from bili_fact_checker.models import (
 )
 from bili_fact_checker.providers import chat, extract_json_array
 from bili_fact_checker.providers.search import (
+    SearchBudgetError,
     SearchProvider,
     SearchProviderError,
     SearchRequest,
+    SearchUnavailableError,
 )
 
 
@@ -216,6 +219,28 @@ class EvidenceService:
                         first_candidate_number=len(candidates) + 1,
                     )
                 )
+            except SearchBudgetError as exc:
+                events.append(
+                    AnalysisEvent(
+                        stage="search",
+                        level=EventLevel.WARNING,
+                        code="search_budget_exhausted",
+                        message=str(exc),
+                        details={"claim_id": claim.id, "query_id": query.id},
+                    )
+                )
+                break
+            except SearchUnavailableError as exc:
+                events.append(
+                    AnalysisEvent(
+                        stage="search",
+                        level=EventLevel.ERROR,
+                        code="search_unavailable",
+                        message=str(exc),
+                        details={"claim_id": claim.id, "query_id": query.id},
+                    )
+                )
+                continue
             except SearchProviderError as exc:
                 events.append(
                     AnalysisEvent(
@@ -271,6 +296,21 @@ class EvidenceService:
                         timeout=self.settings.fetch_timeout_seconds,
                         max_bytes=self.settings.fetch_max_bytes,
                     )
+                except UnsafeUrlError as exc:
+                    events.append(
+                        AnalysisEvent(
+                            stage="fetch",
+                            level=EventLevel.WARNING,
+                            code="page_blocked",
+                            message=str(exc),
+                            details={
+                                "claim_id": claim.id,
+                                "candidate_id": candidate.id,
+                                "url": str(candidate.url),
+                            },
+                        )
+                    )
+                    continue
                 except (PageFetchError, OSError, ValueError) as exc:
                     events.append(
                         AnalysisEvent(
@@ -309,6 +349,20 @@ class EvidenceService:
                     limit=3,
                     reranker=self.reranker,
                 )
+                if not selected:
+                    events.append(
+                        AnalysisEvent(
+                            stage="fetch",
+                            level=EventLevel.WARNING,
+                            code="extraction_failed",
+                            message="页面已抓取，但没有提取到与声明相关的精确引文。",
+                            details={
+                                "claim_id": claim.id,
+                                "candidate_id": candidate.id,
+                                "url": str(candidate.url),
+                            },
+                        )
+                    )
                 new_excerpts.extend(selected)
 
             excerpts.extend(new_excerpts)
