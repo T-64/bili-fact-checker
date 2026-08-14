@@ -1,74 +1,204 @@
 {
-  "schema_version": "0.1",
-  "generated_at": "2026-08-10T00:00:00+00:00",
-  "disclaimer": "本工具输出仅为辅助线索，不是权威最终裁决。请核对来源链接；标为 model_inference 的条目无外部举证。",
-  "tasks": ["summary", "verify"],
+  "schema_version": "1.0",
+  "disclaimer": "这是基于当前检索证据生成的辅助审阅报告，不是权威裁决。请核对视频原话、证据引文和来源页面。",
+  "run": {
+    "software_version": "1.0.0",
+    "model": "fixture-model",
+    "search_providers": [
+      "fixture"
+    ],
+    "search_capabilities": [],
+    "search_usage": [],
+    "generated_at": "2026-08-14T18:24:18.363540Z"
+  },
   "video": {
     "bvid": "BV1EXAMPLE001",
     "title": "示例：科普口播核查演示",
+    "url": "https://www.bilibili.com/video/BV1EXAMPLE001",
     "aid": "0",
     "cid": "0",
-    "subtitle_source": "cc",
-    "language": "zh-CN",
-    "char_count": 1200,
-    "url": "https://www.bilibili.com/video/BV1EXAMPLE001"
+    "page": 1,
+    "part_title": ""
   },
-  "summary": "**概述**\n这是一份示例报告，展示 bili-fact-checker 的输出结构。\n\n**关键断言**\n视频提出若干可核查声明，系统分别检索 ClaimReview 与网页证据。\n\n**如何阅读**\n优先看带 sourced_* 标签的条目；model_inference 仅供参考。",
+  "transcript": {
+    "source": "cc",
+    "language": "zh-CN",
+    "segments": [
+      {
+        "id": "seg_00001",
+        "start": 42.0,
+        "end": 46.0,
+        "text": "水在一个大气压下大约一百度沸腾"
+      },
+      {
+        "id": "seg_00002",
+        "start": 90.0,
+        "end": 94.0,
+        "text": "这个数字目前查不到公开原始来源"
+      }
+    ],
+    "text_sha256": "337495ff567ce8ef205c58c19d2ee6e6aa04c5fa901cde9e54b4da006a896a64"
+  },
+  "summary": "**概述**\n这是一份当前 schema 1.0 的示例报告。\n\n**如何阅读**\n只把成功抓取的精确引文当作证据；搜索摘要和模型记忆不算。",
   "claims": [
     {
-      "claim_zh": "示例声明：水在标准大气压下约 100°C 沸腾",
-      "claim_en": "Water boils at about 100C at standard atmospheric pressure",
-      "type": "其他",
-      "quote": "水在一个大气压下大约一百度沸腾",
-      "timestamp_sec": 42,
-      "has_sourced_evidence": true,
-      "google_factcheck": null,
-      "web": [
+      "claim": {
+        "id": "claim_0001",
+        "claim_zh": "水在标准大气压下约100°C沸腾",
+        "claim_en": "Water boils at about 100C at standard atmospheric pressure",
+        "claim_type": "其他",
+        "quote": "水在一个大气压下大约一百度沸腾",
+        "anchor_segment_ids": [
+          "seg_00001"
+        ],
+        "timestamp_sec": 42,
+        "timestamps_sec": [
+          42
+        ],
+        "checkability_reason": "",
+        "entities": [],
+        "temporal_context": ""
+      },
+      "queries": [],
+      "candidates": [
         {
-          "title": "Example source",
-          "url": "https://example.com/boiling-point",
-          "snippet": "At 1 atm, pure water boils near 100 °C."
+          "id": "candidate_00001",
+          "query_id": "query_0001_01",
+          "provider": "fixture",
+          "rank": 1,
+          "title": "Example source 1",
+          "url": "https://one.example/boiling-point",
+          "snippet": "discovery only",
+          "published_at": "",
+          "retrieved_at": "2026-08-14T18:24:18.363368Z",
+          "raw_reference": ""
+        },
+        {
+          "id": "candidate_00002",
+          "query_id": "query_0001_01",
+          "provider": "fixture",
+          "rank": 2,
+          "title": "Example source 2",
+          "url": "https://two.example/boiling-point",
+          "snippet": "discovery only",
+          "published_at": "",
+          "retrieved_at": "2026-08-14T18:24:18.363434Z",
+          "raw_reference": ""
         }
       ],
-      "evidence": [
+      "documents": [
         {
-          "tier": "sourced_web",
-          "title": "Example source",
-          "url": "https://example.com/boiling-point",
-          "snippet": "At 1 atm, pure water boils near 100 °C."
+          "id": "doc_00001",
+          "candidate_id": "candidate_00001",
+          "url": "https://one.example/boiling-point",
+          "canonical_url": "https://one.example/boiling-point",
+          "title": "Example source 1",
+          "publisher": "one.example",
+          "author": "",
+          "published_at": "",
+          "retrieved_at": "2026-08-14T18:24:18.363377Z",
+          "content_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb1",
+          "char_count": 80,
+          "source_quality": "credible"
+        },
+        {
+          "id": "doc_00002",
+          "candidate_id": "candidate_00002",
+          "url": "https://two.example/boiling-point",
+          "canonical_url": "https://two.example/boiling-point",
+          "title": "Example source 2",
+          "publisher": "two.example",
+          "author": "",
+          "published_at": "",
+          "retrieved_at": "2026-08-14T18:24:18.363436Z",
+          "content_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb2",
+          "char_count": 80,
+          "source_quality": "credible"
         }
       ],
-      "judgment": {
+      "excerpts": [
+        {
+          "id": "excerpt_00001",
+          "document_id": "doc_00001",
+          "text": "At 1 atm, pure water boils near 100 °C.",
+          "start_char": 0,
+          "end_char": 39
+        },
+        {
+          "id": "excerpt_00002",
+          "document_id": "doc_00002",
+          "text": "At 1 atm, pure water boils near 100 °C.",
+          "start_char": 0,
+          "end_char": 39
+        }
+      ],
+      "assessments": [
+        {
+          "excerpt_id": "excerpt_00001",
+          "stance": "supports",
+          "rationale": "摘录在相同对象和口径下直接支持声明。",
+          "model": "fixture-model"
+        },
+        {
+          "excerpt_id": "excerpt_00002",
+          "stance": "supports",
+          "rationale": "摘录在相同对象和口径下直接支持声明。",
+          "model": "fixture-model"
+        }
+      ],
+      "verdict": {
         "verdict": "supported",
-        "confidence": 0.9,
-        "label": "sourced_web",
-        "rationale": "网页证据与声明一致（示例数据）。",
-        "sources": ["https://example.com/boiling-point"]
+        "strength": "high",
+        "supporting_excerpt_ids": [
+          "excerpt_00001",
+          "excerpt_00002"
+        ],
+        "refuting_excerpt_ids": [],
+        "context_excerpt_ids": [],
+        "reason": "支持方向的证据达到预设门槛，且没有同等级反向证据。",
+        "needs_human_review": false
       }
     },
     {
-      "claim_zh": "示例声明：某冷门统计无法在公开库命中",
-      "claim_en": "An obscure statistic with no public fact-check hit",
-      "type": "统计数据",
-      "quote": "",
-      "timestamp_sec": 90,
-      "has_sourced_evidence": false,
-      "google_factcheck": null,
-      "web": [],
-      "evidence": [],
-      "judgment": {
-        "verdict": "unverified",
-        "confidence": 0.2,
-        "label": "model_inference",
-        "rationale": "无外部证据，仅为模型推断（示例）。",
-        "sources": []
+      "claim": {
+        "id": "claim_0002",
+        "claim_zh": "某冷门统计目前没有公开原始来源",
+        "claim_en": "An obscure statistic currently has no public primary source",
+        "claim_type": "统计数据",
+        "quote": "这个数字目前查不到公开原始来源",
+        "anchor_segment_ids": [
+          "seg_00002"
+        ],
+        "timestamp_sec": 90,
+        "timestamps_sec": [
+          90
+        ],
+        "checkability_reason": "",
+        "entities": [],
+        "temporal_context": ""
+      },
+      "queries": [],
+      "candidates": [],
+      "documents": [],
+      "excerpts": [],
+      "assessments": [],
+      "verdict": {
+        "verdict": "insufficient_evidence",
+        "strength": "none",
+        "supporting_excerpt_ids": [],
+        "refuting_excerpt_ids": [],
+        "context_excerpt_ids": [],
+        "reason": "没有取得带精确引文且方向明确的外部证据。",
+        "needs_human_review": false
       }
     }
   ],
+  "events": [],
   "stats": {
     "claim_count": 2,
-    "sourced": 1,
-    "model_inference": 1,
-    "unverified_or_weak": 1
+    "supported": 1,
+    "refuted": 0,
+    "disputed": 0,
+    "insufficient_evidence": 1
   }
 }

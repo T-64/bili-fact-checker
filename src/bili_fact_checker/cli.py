@@ -3,13 +3,20 @@
 from __future__ import annotations
 
 import argparse
+import getpass
 import json
 import sys
 from pathlib import Path
 
 from bili_fact_checker import __version__
-from bili_fact_checker.config import Settings, validate_api_bind
-from bili_fact_checker.diagnostics import run_doctor
+from bili_fact_checker.config import (
+    Settings,
+    apply_setup,
+    clear_user_config,
+    user_config_path,
+    validate_api_bind,
+)
+from bili_fact_checker.diagnostics import build_support_bundle, run_doctor
 from bili_fact_checker.ingest import (
     extract_bvid,
     fetch_transcript,
@@ -25,8 +32,80 @@ def _err(msg: str) -> None:
     print(msg, file=sys.stderr)
 
 
+def _prompt(label: str, default: str = "", *, secret: bool = False) -> str:
+    suffix = f" [{default}]" if default else ""
+    if secret:
+        value = getpass.getpass(f"{label}{suffix}: ")
+    else:
+        value = input(f"{label}{suffix}: ")
+    return value.strip() or default
+
+
+def cmd_setup(args: argparse.Namespace) -> int:
+    if getattr(args, "clear", False):
+        path = user_config_path()
+        if clear_user_config():
+            print(f"removed {path}")
+        else:
+            print("no saved config file")
+        return 0
+
+    current = Settings.from_env()
+    if sys.stdin.isatty() and args.api_key is None:
+        updates = {
+            "openai_api_base": args.api_base
+            or _prompt("API base", current.openai_api_base),
+            "openai_api_key": _prompt(
+                "API key (hidden, never shown later)", secret=True
+            ),
+            "openai_model": args.model or _prompt("Model", current.openai_model),
+            "sessdata": args.sessdata
+            if args.sessdata is not None
+            else _prompt(
+                "Bilibili SESSDATA optional (hidden)",
+                secret=True,
+            ),
+        }
+        persist = args.save or _prompt(
+            "Save credentials to local config file? [y/N]", "n"
+        ).lower() in {"y", "yes"}
+    else:
+        updates = {
+            "openai_api_base": args.api_base or "",
+            "openai_api_key": args.api_key or "",
+            "openai_model": args.model or "",
+            "sessdata": args.sessdata or "",
+        }
+        persist = bool(args.save)
+
+    try:
+        merged = apply_setup(current, updates, persist=False)
+    except ValueError as exc:
+        _err(f"error: {exc}")
+        return 1
+    if persist:
+        apply_setup(merged, {}, persist=True)
+        merged = Settings.from_env()
+        print(f"saved {user_config_path()} (mode 0600)")
+        print(f"ready: {merged.openai_api_base} · {merged.openai_model}")
+    else:
+        print(
+            "本次没有改变后续命令配置。请使用 --save 写入配置文件，或设置环境变量。"
+        )
+    return 0
+
+
 def cmd_doctor(args: argparse.Namespace) -> int:
-    report = run_doctor(Settings.from_env())
+    settings = Settings.from_env()
+    if getattr(args, "output", None):
+        bundle = build_support_bundle(settings)
+        Path(args.output).write_text(
+            json.dumps(bundle, ensure_ascii=False, indent=2) + "\n",
+            encoding="utf-8",
+        )
+        print(f"wrote {args.output}")
+        return 0 if bundle.get("ready") else 1
+    report = run_doctor(settings)
     if args.json:
         print(json.dumps(report.to_dict(), ensure_ascii=False, indent=2))
     else:
@@ -143,7 +222,32 @@ def build_parser() -> argparse.ArgumentParser:
         "doctor", help="check configuration without making paid API calls"
     )
     doctor.add_argument("--json", action="store_true", help="print machine-readable JSON")
+    doctor.add_argument(
+        "-o",
+        "--output",
+        help="write a redacted support bundle JSON (no secrets)",
+    )
     doctor.set_defaults(func=cmd_doctor)
+
+    setup = sub.add_parser(
+        "setup",
+        help="configure API base, key, model, and optional Bilibili cookie",
+    )
+    setup.add_argument("--api-base", help="provider API base URL")
+    setup.add_argument("--api-key", help="provider API key")
+    setup.add_argument("--model", help="model name")
+    setup.add_argument("--sessdata", help="optional Bilibili SESSDATA cookie")
+    setup.add_argument(
+        "--save",
+        action="store_true",
+        help="write credentials to the local config file (opt-in)",
+    )
+    setup.add_argument(
+        "--clear",
+        action="store_true",
+        help="delete the saved local config file",
+    )
+    setup.set_defaults(func=cmd_setup)
 
     serve = sub.add_parser("serve", help="run the local API and web interface")
     serve.add_argument("--host", default="127.0.0.1")

@@ -33,7 +33,8 @@
     .topline h2{font:700 22px/1.2 ui-serif,"Noto Serif SC",Georgia,serif;margin:0}.ghost{border:1px solid var(--line);background:var(--sheet);color:var(--ink);border-radius:5px;padding:7px 10px}
     .composer{background:var(--sheet);border:1px solid var(--line);box-shadow:var(--shadow);padding:20px;border-radius:8px}
     label{display:block;font-size:13px;font-weight:700;margin-bottom:6px}.input-row{display:grid;grid-template-columns:1fr 94px;gap:10px}
-    input[type=text],input[type=password],input[type=number]{width:100%;border:1px solid #c7c4bc;background:#fff;padding:10px 11px;border-radius:5px;color:var(--ink)}
+    input[type=text],input[type=password],input[type=number],select{width:100%;border:1px solid #c7c4bc;background:#fff;padding:10px 11px;border-radius:5px;color:var(--ink)}
+    .field{margin:12px 0}
     input:focus{outline:2px solid rgba(49,95,145,.22);border-color:var(--blue)}
     .presets{display:grid;grid-template-columns:repeat(3,1fr);gap:9px;margin:16px 0}.preset{position:relative}.preset input{position:absolute;opacity:0}.preset label{height:100%;border:1px solid var(--line);border-radius:6px;padding:11px;background:#fff;cursor:pointer}.preset input:checked+label{border-color:var(--red);background:var(--red-soft)}.preset b{display:block}.preset small{color:var(--muted)}
     .composer-foot{display:flex;align-items:end;justify-content:space-between;gap:16px}.checks{display:flex;gap:16px;flex-wrap:wrap;color:var(--muted);font-size:13px}.checks label{font-weight:500;margin:0}
@@ -65,10 +66,31 @@
   <main class="main">
     <header class="topline"><h2 id="viewTitle">新建核查</h2><button class="ghost" id="refresh">刷新状态</button></header>
     <section class="composer" id="composer">
+      <form id="setupForm" class="hidden">
+        <p class="hint" style="margin-top:0;color:var(--muted)">先配置一个 AI 提供商。原生搜索会复用同一账号；可能产生供应商费用，本工具不估算价格。密钥不会写入报告。</p>
+        <div class="field"><label for="setupPreset">提供商</label>
+          <select id="setupPreset">
+            <option value="https://api.z.ai/api/paas/v4">Z.AI / 智谱</option>
+            <option value="https://api.openai.com/v1">OpenAI</option>
+            <option value="https://generativelanguage.googleapis.com/v1beta">Gemini</option>
+            <option value="https://api.anthropic.com/v1">Anthropic</option>
+            <option value="">自定义</option>
+          </select>
+        </div>
+        <div class="field"><label for="setupBase">API Base</label><input id="setupBase" type="text" required maxlength="300" value="https://api.z.ai/api/paas/v4"></div>
+        <div class="field"><label for="setupKey">API Key</label><input id="setupKey" type="password" autocomplete="off" maxlength="2000"></div>
+        <div class="field"><label for="setupModel">Model</label><input id="setupModel" type="text" required maxlength="200" value="glm-4-flash"></div>
+        <div class="field"><label for="setupSess">Bilibili SESSDATA（可选，登录字幕用）</label><input id="setupSess" type="password" autocomplete="off" maxlength="4000"></div>
+        <label class="checks" style="margin:8px 0 16px"><input id="setupPersist" type="checkbox"> 保存到本机配置文件（权限 0600，仅在勾选后写入）</label>
+        <div class="progress-actions">
+          <button class="primary" id="saveSetup" type="submit">保存并继续</button>
+          <button class="ghost" id="clearSetup" type="button">清除已保存凭据</button>
+        </div>
+      </form>
       <form id="analyzeForm">
         <div class="input-row">
           <div><label for="bvid">Bilibili 视频链接或 BV 号</label><input id="bvid" type="text" required maxlength="300" placeholder="https://www.bilibili.com/video/BV…"></div>
-          <div><label for="page">分 P</label><input id="page" type="number" min="1" max="10000" value="1"></div>
+          <div><label for="pageSelect">分 P</label><select id="pageSelect"><option value="1">P1</option></select><input id="page" type="hidden" value="1"></div>
         </div>
         <div class="presets" aria-label="核查模式">
           <div class="preset"><input id="fast" name="preset" type="radio" value="fast"><label for="fast"><b>快速审阅</b><small>最多 6 条声明，每条 1 次搜索</small></label></div>
@@ -104,15 +126,41 @@
     if(options.body&&!headers.has('Content-Type'))headers.set('Content-Type','application/json');
     const response=await fetch(path,{...options,headers});
     if(response.status===401){$('tokenModal').classList.remove('hidden');throw new Error('需要访问令牌');}
-    const data=await response.json().catch(()=>({detail:response.statusText}));if(!response.ok)throw new Error(data.detail||'请求失败');return data;
+    const data=await response.json().catch(()=>({detail:response.statusText}));if(!response.ok)throw new Error(typeof data.detail==='string'?data.detail:(Array.isArray(data.detail)?data.detail.map(x=>x.msg||x).join('；'):'请求失败'));return data;
   }
   function showNotice(message,error=false){$('notice').textContent=message;$('notice').classList.toggle('hidden',!message);$('notice').style.borderColor=error?'var(--red)':'var(--amber)';}
-  function verdictLabel(value){return({supported:'支持',refuted:'反驳',disputed:'存在争议',insufficient_evidence:'证据不足'})[value]||value;}
+  function eventLabel(code){return({search_unavailable:'搜索不可用',search_failed:'搜索失败',search_budget_exhausted:'搜索预算耗尽',page_blocked:'页面被安全策略拒绝',page_fetch_failed:'页面访问失败',extraction_failed:'正文提取失败',assessment_failed:'证据判断失败',login_required:'需要登录字幕'}[code]||code);}
+  function claimIssues(claimId){
+    const events=(state.report?.events||[]).filter(e=>e.details?.claim_id===claimId);
+    const codes=[...new Set(events.map(e=>e.code).filter(c=>['search_unavailable','search_failed','search_budget_exhausted','page_blocked','page_fetch_failed','extraction_failed'].includes(c)))];
+    if(!codes.length)return '';
+    return `<div class="notice" style="margin:12px 0">${codes.map(c=>esc(eventLabel(c))).join(' · ')}</div>`;
+  }
   function statusLabel(value){return({queued:'排队中',running:'运行中',cancelling:'取消中',cancelled:'已取消',done:'已完成',error:'失败',interrupted:'已中断'})[value]||value;}
+  function verdictLabel(value){return({supported:'支持',refuted:'反驳',disputed:'争议',insufficient_evidence:'证据不足'})[value]||value;}
+  function showSetup(show){
+    $('setupForm').classList.toggle('hidden',!show);
+    $('analyzeForm').classList.toggle('hidden',show);
+    if(show)$('viewTitle').textContent='配置提供商';
+  }
+  async function openSetup(){
+    showSetup(true);
+    try{
+      const data=await api('/v1/setup');
+      $('setupBase').value=data.openai_api_base||'';
+      $('setupModel').value=data.openai_model||'';
+      $('setupKey').value='';$('setupSess').value='';
+      $('setupKey').placeholder=data.has_api_key?'已配置，留空则保持不变':'';
+      $('setupSess').placeholder=data.has_sessdata?'已配置，留空则保持不变':'';
+      const match=[...$('setupPreset').options].find(o=>o.value&&o.value===$('setupBase').value);
+      $('setupPreset').value=match?match.value:'';
+    }catch(error){showNotice(error.message,true);}
+  }
   function renderProvider(){
     const s=state.status;if(!s){$('provider').innerHTML='<span class="job-meta">状态不可用</span>';return;}
     const search=s.search_provider==='none'?'不可用':s.search_provider;
-    $('provider').innerHTML=`<div class="provider-row"><span><i class="dot"></i>语言模型</span><b>${esc(s.llm_provider)}</b></div><div class="provider-row"><span><i class="dot" style="background:${s.search_provider==='none'?'var(--amber)':'var(--green)'}"></i>网页搜索</span><b>${esc(search)}</b></div><div class="hint">${s.search_native_to_llm?'复用同一个 AI 账号，不需要额外搜索 key。':'使用独立或外部搜索配置。'}<br>能力检测没有发起付费探测。</div>`;
+    $('provider').innerHTML=`<div class="provider-row"><span><i class="dot"></i>语言模型</span><b>${esc(s.llm_provider)}</b></div><div class="provider-row"><span><i class="dot" style="background:${s.search_provider==='none'?'var(--amber)':'var(--green)'}"></i>网页搜索</span><b>${esc(search)}</b></div><div class="hint">${s.search_native_to_llm?'复用同一个 AI 账号，不需要额外搜索 key。':'使用独立或外部搜索配置。'}<br>能力检测没有发起付费探测。</div><button class="ghost" id="openSetup" type="button" style="width:100%;margin-top:10px">配置提供商</button>`;
+    if($('openSetup'))$('openSetup').onclick=openSetup;
   }
   function renderBudget(){const p=document.querySelector('input[name=preset]:checked').value;const preset=state.status?.presets?.[p];$('budget').innerHTML=preset?`最多 <strong>${preset.max_claims}</strong> 条声明 · <strong>${preset.max_searches_per_run}</strong> 次搜索调用<br>证据达标会提前停止，缓存命中不重复调用`:'预算以服务端配置为准';}
   function renderHistory(){
@@ -121,7 +169,7 @@
   }
   function renderAudit(job,report){
     const logs=job?.logs||[];const events=report?.events||[];const stages=logs.map(line=>{const [name,...rest]=line.split(':');return `<div class="stage"><b>${esc(name)}</b><small>${esc(rest.join(':').trim())}</small></div>`;}).join('');
-    const eventRows=events.slice(-10).map(e=>`<div class="stage ${esc(e.level)}"><b>${esc(e.code)}</b><small>${esc(e.message)}</small></div>`).join('');
+    const eventRows=events.slice(-10).map(e=>`<div class="stage ${esc(e.level)}"><b>${esc(eventLabel(e.code))}</b><small>${esc(e.message)}</small></div>`).join('');
     const usage=(report?.run?.search_usage||[]).reduce((a,x)=>({calls:a.calls+(x.request_count||0),results:a.results+(x.result_count||0),billable:a.billable+(x.billable_uses||0)}),{calls:0,results:0,billable:0});
     const actions=job&&['running','queued','cancelling'].includes(job.status)?`<div class="progress-actions"><button class="danger" id="cancelJob">取消任务</button></div>`:job&&['error','cancelled','interrupted'].includes(job.status)?`<div class="progress-actions"><button class="ghost" id="retryJob">重试原任务</button></div>`:'';
     const html=`${job?`<div class="audit-card"><b>${esc(statusLabel(job.status))}</b><br>ID: ${esc(job.id)} · 阶段 ${esc(job.stage)}${job.error?`<br><span style="color:var(--red)">${esc(job.error)}</span>`:''}</div>`:''}${actions}${stages||'<div class="audit-card">等待执行记录…</div>'}${eventRows}${report?`<div class="audit-card"><b>资源使用</b><br>实际搜索调用 ${usage.calls}<br>返回候选 ${usage.results}<br>已报告计费使用 ${usage.billable}</div>`:''}`;
@@ -136,7 +184,7 @@
   }
   function renderClaim(index){
     state.claim=index;const item=state.report.claims[index];if(!item)return;const c=item.claim,v=item.verdict;const times=(c.timestamps_sec||[c.timestamp_sec]).map(t=>`<a href="${esc(state.report.video.url)}${state.report.video.url.includes('?')?'&':'?'}t=${Number(t)}" target="_blank" rel="noopener">${Number(t)}s ↗</a>`).join('、');
-    $('claimDetail').innerHTML=`<div class="verdict-line"><span class="badge ${esc(v.verdict)}">${esc(verdictLabel(v.verdict))}</span><span>证据强度：<b>${esc(v.strength)}</b></span>${v.needs_human_review?'<span class="badge disputed">需要人工复核</span>':''}</div><h3>${esc(c.claim_zh)}</h3><blockquote class="quote">“${esc(c.quote)}”<br><small>${times}</small></blockquote><div class="rule"><b>确定性判定依据：</b>${esc(v.reason)}<br>搜索摘要与模型记忆不计入证据；只有下列成功抓取的精确引文参与判定。</div><section class="evidence-group"><h4 style="color:var(--green)">支持证据</h4>${evidenceCards(item,'supports')}</section><section class="evidence-group"><h4 style="color:var(--red)">反驳证据</h4>${evidenceCards(item,'refutes')}</section><section class="evidence-group"><h4 style="color:var(--blue)">背景与语境</h4>${evidenceCards(item,'context')}</section>`;
+    $('claimDetail').innerHTML=`<div class="verdict-line"><span class="badge ${esc(v.verdict)}">${esc(verdictLabel(v.verdict))}</span><span>证据强度：<b>${esc(v.strength)}</b></span>${v.needs_human_review?'<span class="badge disputed">需要人工复核</span>':''}</div><h3>${esc(c.claim_zh)}</h3><blockquote class="quote">“${esc(c.quote)}”<br><small>${times}</small></blockquote>${claimIssues(c.id)}<div class="rule"><b>确定性判定依据：</b>${esc(v.reason)}<br>搜索摘要与模型记忆不计入证据；只有下列成功抓取的精确引文参与判定。</div><section class="evidence-group"><h4 style="color:var(--green)">支持证据</h4>${evidenceCards(item,'supports')}</section><section class="evidence-group"><h4 style="color:var(--red)">反驳证据</h4>${evidenceCards(item,'refutes')}</section><section class="evidence-group"><h4 style="color:var(--blue)">背景与语境</h4>${evidenceCards(item,'context')}</section>`;
     document.querySelectorAll('.claim-tab').forEach((x,i)=>x.classList.toggle('active',i===index));
   }
   function renderReport(report){
@@ -145,7 +193,9 @@
     document.querySelectorAll('[data-claim]').forEach(x=>x.onclick=()=>renderClaim(Number(x.dataset.claim)));if(claims.length)renderClaim(0);
   }
   async function refreshStatus(){
-    try{state.status=await api('/v1/status');renderProvider();renderBudget();const data=await api('/v1/jobs?limit=30');state.jobs=data.jobs||[];renderHistory();showNotice(state.status.ready?'':(state.status.checks||[]).filter(x=>x.status==='error').map(x=>x.message).join('；'),true);}catch(error){if(error.message!=='需要访问令牌')showNotice(error.message,true);}
+    try{state.status=await api('/v1/status');renderProvider();renderBudget();const data=await api('/v1/jobs?limit=30');state.jobs=data.jobs||[];renderHistory();
+      if(!state.status.ready&&!state.active)await openSetup();
+      showNotice(state.status.ready?'':(state.status.checks||[]).filter(x=>x.status==='error').map(x=>x.message).join('；'),!state.status.ready);}catch(error){if(error.message!=='需要访问令牌')showNotice(error.message,true);}
   }
   async function loadJob(id){
     clearTimeout(state.timer);try{const job=await api('/v1/jobs/'+id);state.active=job;renderHistory();renderAudit(job,state.report?.video?.bvid===job.request?.bvid?state.report:null);$('viewTitle').textContent='任务 '+job.id;
@@ -155,9 +205,17 @@
   }
   async function cancelActive(){if(!state.active)return;await api(`/v1/jobs/${state.active.id}/cancel`,{method:'POST'});loadJob(state.active.id);}
   async function retryActive(){if(!state.active)return;const job=await api(`/v1/jobs/${state.active.id}/retry`,{method:'POST'});loadJob(job.id);}
+  $('setupPreset').onchange=()=>{if($('setupPreset').value)$('setupBase').value=$('setupPreset').value;};
+  $('setupForm').onsubmit=async event=>{event.preventDefault();showNotice('');$('saveSetup').disabled=true;try{const result=await api('/v1/setup',{method:'PUT',body:JSON.stringify({openai_api_base:$('setupBase').value.trim(),openai_api_key:$('setupKey').value,openai_model:$('setupModel').value.trim(),sessdata:$('setupSess').value,persist:$('setupPersist').checked})});$('setupKey').value='';$('setupSess').value='';await refreshStatus();if(result.ready){showSetup(false);$('viewTitle').textContent='新建核查';showNotice(result.persisted?'已保存到本机配置文件。':'已用于当前进程；重启后需重新配置。');} }catch(error){showNotice(error.message,true);}finally{$('saveSetup').disabled=false;}};
+  $('clearSetup').onclick=async()=>{if(!confirm('清除已保存的配置文件？环境变量中的密钥不会被删除。'))return;try{await api('/v1/setup',{method:'DELETE'});$('setupKey').value='';$('setupSess').value='';await refreshStatus();showNotice('已清除保存的配置文件。');}catch(error){showNotice(error.message,true);}};
+  async function loadParts(){
+    const value=$('bvid').value.trim();if(value.length<5)return;try{const data=await api('/v1/video?bvid='+encodeURIComponent(value));const select=$('pageSelect');select.innerHTML=(data.parts||[]).map(part=>`<option value="${part.page}">P${part.page} ${esc(part.title||'')}</option>`).join('')||'<option value="1">P1</option>';$('page').value=select.value;}catch(_error){/* keep manual fallback */}
+  }
+  $('bvid').addEventListener('change',loadParts);
+  $('pageSelect').onchange=()=>{$('page').value=$('pageSelect').value;};
   $('analyzeForm').onsubmit=async event=>{event.preventDefault();showNotice('');$('start').disabled=true;try{const tasks=['verify'];if($('summary').checked)tasks.unshift('summary');const job=await api('/v1/analyze',{method:'POST',body:JSON.stringify({bvid:$('bvid').value.trim(),page:Number($('page').value),preset:document.querySelector('input[name=preset]:checked').value,tasks,asr:$('asr').checked})});await refreshStatus();loadJob(job.id);}catch(error){showNotice(error.message,true);$('start').disabled=false;}};
   document.querySelectorAll('input[name=preset]').forEach(x=>x.onchange=renderBudget);
-  $('newJob').onclick=()=>{clearTimeout(state.timer);state.active=null;state.report=null;$('viewTitle').textContent='新建核查';$('composer').classList.remove('hidden');$('report').classList.add('hidden');$('mobileAudit').classList.add('hidden');renderAudit(null,null);renderHistory();$('start').disabled=false;showNotice('');};
+  $('newJob').onclick=()=>{clearTimeout(state.timer);state.active=null;state.report=null;$('composer').classList.remove('hidden');$('report').classList.add('hidden');$('mobileAudit').classList.add('hidden');renderAudit(null,null);renderHistory();$('start').disabled=false;showNotice('');if(state.status&&!state.status.ready)openSetup();else{showSetup(false);$('viewTitle').textContent='新建核查';}};
   $('refresh').onclick=refreshStatus;$('saveToken').onclick=()=>{sessionStorage.setItem('bfc_token',$('token').value);$('tokenModal').classList.add('hidden');refreshStatus();};
   refreshStatus();
 </script>

@@ -1,72 +1,40 @@
-<!DOCTYPE html>
-<html lang="zh-CN">
-<head>
-<meta charset="utf-8"/>
-<meta name="viewport" content="width=device-width, initial-scale=1"/>
-<title>核查报告 · 示例：科普口播核查演示</title>
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>证据核查报告 · 示例：科普口播核查演示</title>
 <style>
-:root { --bg:#0f1115; --panel:#171a21; --text:#e8eaed; --muted:#9aa0a6; --line:#2a2f3a;
-  --green:#3d8b6e; --red:#a85a5a; --amber:#a88a4a; --gray:#6b7280; }
-* { box-sizing:border-box; }
-body { margin:0; font-family: ui-sans-serif, system-ui, sans-serif; background:var(--bg); color:var(--text); line-height:1.55; }
-main { max-width:820px; margin:0 auto; padding:32px 20px 64px; }
-h1 { font-size:1.5rem; margin:0 0 8px; }
-.sub { color:var(--muted); font-size:.95rem; margin-bottom:24px; }
-.callout { border:1px solid var(--line); background:var(--panel); padding:12px 14px; border-radius:8px; color:var(--muted); font-size:.9rem; }
-section { margin-top:28px; }
-h2 { font-size:1.15rem; border-bottom:1px solid var(--line); padding-bottom:8px; }
-.claim { background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:14px 16px; margin:12px 0; }
-.claim header { display:flex; gap:10px; align-items:center; margin-bottom:8px; }
-.idx { color:var(--muted); font-size:.85rem; }
-.badge { font-size:.75rem; padding:2px 8px; border-radius:999px; border:1px solid var(--line); }
-.badge.green { color:#b6e2d0; border-color:var(--green); }
-.badge.red { color:#f0c4c4; border-color:var(--red); }
-.badge.amber { color:#ead7a8; border-color:var(--amber); }
-.badge.gray { color:#c5c9d0; border-color:var(--gray); }
-.claim-text { margin:0 0 6px; font-weight:600; }
-.meta, .rationale, .no-src { color:var(--muted); font-size:.9rem; }
-.sources { margin:8px 0 0; padding-left:18px; }
-.sources a { color:#8ab4f8; }
-a { color:#8ab4f8; }
-</style>
-</head>
-<body>
-<main>
-  <h1>B站口播事实核查</h1>
-  <p class="sub"><a href="https://www.bilibili.com/video/BV1EXAMPLE001">示例：科普口播核查演示</a>
-  · BV1EXAMPLE001 · 字幕 cc</p>
-  <div class="callout">本工具输出仅为辅助线索，不是权威最终裁决。请核对来源链接；标为 model_inference 的条目无外部举证。</div>
-  <section>
-    <h2>内容总结</h2>
-    <div>**概述**<br>
-这是一份示例报告，展示 bili-fact-checker 的输出结构。<br>
-<br>
-**关键断言**<br>
-视频提出若干可核查声明，系统分别检索 ClaimReview 与网页证据。<br>
-<br>
-**如何阅读**<br>
-优先看带 sourced_* 标签的条目；model_inference 仅供参考。</div>
-  </section>
-  <section>
-    <h2>声明核查（2）</h2>
-    
+:root{--bg:#f5f2eb;--paper:#fffdf8;--ink:#24231f;--muted:#706d65;--line:#d8d2c5;--accent:#a53a2a}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.6 system-ui,sans-serif}
+main{max-width:900px;margin:auto;padding:36px 20px 72px}a{color:var(--accent)}
+.intro,.claim{background:var(--paper);border:1px solid var(--line);padding:18px 20px;margin:16px 0}
+.claim header{display:flex;gap:12px;align-items:center;color:var(--muted)}.claim h3{margin:.7rem 0}
+.evidence{padding-left:22px}blockquote{border-left:3px solid var(--line);margin:.5rem 0 1rem;padding-left:12px}
+.muted,small{color:var(--muted)}
+</style></head><body><main>
+<h1>B站口播证据核查报告</h1>
+<p><a href="https://www.bilibili.com/video/BV1EXAMPLE001">示例：科普口播核查演示</a>
+· BV1EXAMPLE001
+· P1
+</p>
+<div class="intro">这是基于当前检索证据生成的辅助审阅报告，不是权威裁决。请核对视频原话、证据引文和来源页面。</div>
+<h2>内容总结</h2><div class="intro">**概述**<br>这是一份当前 schema 1.0 的示例报告。<br><br>**如何阅读**<br>只把成功抓取的精确引文当作证据；搜索摘要和模型记忆不算。</div>
+<h2>声明核查（2）</h2>
 <article class="claim">
-  <header><span class="idx">#1</span> <span class="badge green">supported · sourced_web</span></header>
-  <p class="claim-text">示例声明：水在标准大气压下约 100°C 沸腾</p>
-  <p class="meta">其他
-   · 42s</p>
-  <p class="rationale">网页证据与声明一致（示例数据）。</p>
-  <ul class='sources'><li><a href="https://example.com/boiling-point" target="_blank" rel="noopener">https://example.com/boiling-point</a></li></ul>
+  <header><span>#1</span><b>supported</b>
+  <small>证据强度 high</small></header>
+  <h3>水在标准大气压下约100°C沸腾</h3>
+  <p>原话：“水在一个大气压下大约一百度沸腾” ·
+  <a href="https://www.bilibili.com/video/BV1EXAMPLE001?t=42">42s</a></p>
+  <p>支持方向的证据达到预设门槛，且没有同等级反向证据。</p>
+  <ul class="evidence"><li><strong>supports</strong> <a href="https://one.example/boiling-point" target="_blank" rel="noopener">Example source 1</a><blockquote>At 1 atm, pure water boils near 100 °C.</blockquote></li><li><strong>supports</strong> <a href="https://two.example/boiling-point" target="_blank" rel="noopener">Example source 2</a><blockquote>At 1 atm, pure water boils near 100 °C.</blockquote></li></ul>
 </article>
 <article class="claim">
-  <header><span class="idx">#2</span> <span class="badge gray">unverified · model_inference</span></header>
-  <p class="claim-text">示例声明：某冷门统计无法在公开库命中</p>
-  <p class="meta">统计数据
-   · 90s</p>
-  <p class="rationale">无外部证据，仅为模型推断（示例）。</p>
-  <p class='no-src'>无外部证据</p>
+  <header><span>#2</span><b>insufficient_evidence</b>
+  <small>证据强度 none</small></header>
+  <h3>某冷门统计目前没有公开原始来源</h3>
+  <p>原话：“这个数字目前查不到公开原始来源” ·
+  <a href="https://www.bilibili.com/video/BV1EXAMPLE001?t=90">90s</a></p>
+  <p>没有取得带精确引文且方向明确的外部证据。</p>
+  <p class="muted">无已验证引文；搜索摘要不计入证据。</p>
 </article>
-  </section>
-</main>
-</body>
-</html>
+</main></body></html>

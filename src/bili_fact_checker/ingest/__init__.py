@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Any
 
 from bili_fact_checker.config import Settings
+from bili_fact_checker.errors import LoginRequiredError
 from bili_fact_checker.httputil import get_json, open_url
 
 
@@ -449,8 +450,8 @@ def fetch_transcript(
     page: int = 1,
 ) -> Transcript:
     if not settings.sessdata:
-        raise RuntimeError(
-            "缺少 BILI_SESSDATA（环境变量或 ~/.config/bili/SESSDATA）"
+        raise LoginRequiredError(
+            "缺少 BILI_SESSDATA（环境变量、配置向导或 ~/.config/bili/SESSDATA）"
         )
 
     bvid = extract_bvid(url_or_bvid)
@@ -483,7 +484,7 @@ def fetch_transcript(
                 "请更新 ~/.config/bili/SESSDATA（以及 cookies.txt）。"
             )
             if not asr:
-                raise RuntimeError(
+                raise LoginRequiredError(
                     msg
                     + "\n已禁用 ASR。刷新登录后再跑，或去掉 --no-asr / 使用 --transcript。"
                 )

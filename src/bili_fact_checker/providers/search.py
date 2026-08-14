@@ -30,6 +30,10 @@ class SearchUnavailableError(SearchProviderError):
     """No usable provider is configured for open-web discovery."""
 
 
+class SearchBudgetError(SearchProviderError):
+    """The run-wide search-call budget was exhausted."""
+
+
 @dataclass(frozen=True)
 class SearchRequest:
     query_id: str
@@ -79,7 +83,7 @@ class BudgetedSearchProvider:
 
     def search(self, request: SearchRequest) -> SearchBatch:
         if self.used_calls >= self.max_calls:
-            raise SearchUnavailableError(
+            raise SearchBudgetError(
                 f"run-wide search budget exhausted ({self.max_calls} calls)"
             )
         self.used_calls += 1

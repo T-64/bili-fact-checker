@@ -230,6 +230,66 @@ def test_packaged_web_ui_contains_primary_accessible_controls():
 
     assert "证据台 · B站口播核查" in content
     assert 'id="analyzeForm"' in content
+    assert 'id="setupForm"' in content
+    assert 'id="setupPersist"' in content
+    assert 'id="clearSetup"' in content
+    assert 'id="pageSelect"' in content
     assert 'label for="bvid"' in content
     assert 'aria-label="核查模式"' in content
     assert 'id="auditContent"' in content
+    assert "function verdictLabel" in content
+    assert "function eventLabel" in content
+    assert "function claimIssues" in content
+
+
+def test_video_parts_endpoint(tmp_path, monkeypatch):
+    from bili_fact_checker.ingest import VideoMetadata, VideoPart
+
+    monkeypatch.setattr(
+        "bili_fact_checker.api.app.fetch_video_info",
+        lambda _settings, bvid: VideoMetadata(
+            bvid=bvid,
+            aid="1",
+            title="多P",
+            parts=[
+                VideoPart(page=1, cid="111", title="开篇"),
+                VideoPart(page=2, cid="222", title="数据"),
+            ],
+        ),
+    )
+    app = create_app(settings(tmp_path))
+
+    async def scenario() -> None:
+        transport = httpx.ASGITransport(app=app)
+        async with httpx.AsyncClient(
+            transport=transport, base_url="http://testserver"
+        ) as client:
+            response = await client.get("/v1/video", params={"bvid": "BV1TEST00001"})
+            assert response.status_code == 200
+            body = response.json()
+            assert body["title"] == "多P"
+            assert [part["page"] for part in body["parts"]] == [1, 2]
+
+    asyncio.run(scenario())
+
+
+def test_wrong_length_bearer_token_is_unauthorized(tmp_path):
+    app = create_app(settings(tmp_path, api_token="x" * 32))
+
+    async def scenario() -> None:
+        transport = httpx.ASGITransport(app=app)
+        async with httpx.AsyncClient(
+            transport=transport, base_url="http://testserver"
+        ) as client:
+            missing = await client.get("/v1/status")
+            assert missing.status_code == 401
+            short = await client.get(
+                "/v1/status", headers={"Authorization": "Bearer short"}
+            )
+            assert short.status_code == 401
+            ok = await client.get(
+                "/v1/status", headers={"Authorization": "Bearer " + "x" * 32}
+            )
+            assert ok.status_code == 200
+
+    asyncio.run(scenario())

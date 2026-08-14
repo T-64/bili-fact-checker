@@ -1,37 +1,41 @@
-# B站口播事实核查报告
+# B站口播证据核查报告
 
 **视频**: [示例：科普口播核查演示](https://www.bilibili.com/video/BV1EXAMPLE001)
-**BV**: `BV1EXAMPLE001` · 字幕来源: `cc`
-**生成时间**: 2026-08-10T00:00:00+00:00
+**BV**: `BV1EXAMPLE001` · Schema: `1.0`
+**分 P**: P1
+**生成时间**: 2026-08-14T18:24:18.363540Z
 
-> 本工具输出仅为辅助线索，不是权威最终裁决。请核对来源链接；标为 model_inference 的条目无外部举证。
+> 这是基于当前检索证据生成的辅助审阅报告，不是权威裁决。请核对视频原话、证据引文和来源页面。
 
 ## 内容总结
 
 **概述**
-这是一份示例报告，展示 bili-fact-checker 的输出结构。
-
-**关键断言**
-视频提出若干可核查声明，系统分别检索 ClaimReview 与网页证据。
+这是一份当前 schema 1.0 的示例报告。
 
 **如何阅读**
-优先看带 sourced_* 标签的条目；model_inference 仅供参考。
+只把成功抓取的精确引文当作证据；搜索摘要和模型记忆不算。
 
 ## 声明核查（2）
 
-汇总：有出处 1 · 模型推断 1 · 弱/未核实 1
+支持 1 · 反驳 0 · 存在争议 0 · 证据不足 1
 
-### 1. [其他] `supported` · `sourced_web`
-**声明**: 示例声明：水在标准大气压下约 100°C 沸腾
-**EN**: Water boils at about 100C at standard atmospheric pressure
-**时间**: 42s
-**理由**: 网页证据与声明一致（示例数据）。
-**来源**:
-- https://example.com/boiling-point
+### 1. `supported` · 证据强度 `high`
+**声明**: 水在标准大气压下约100°C沸腾
+**视频原话**: “水在一个大气压下大约一百度沸腾”
+**时间**: [42s](https://www.bilibili.com/video/BV1EXAMPLE001?t=42)
+**判定依据**: 支持方向的证据达到预设门槛，且没有同等级反向证据。
 
-### 2. [统计数据] `unverified` · `model_inference`
-**声明**: 示例声明：某冷门统计无法在公开库命中
-**EN**: An obscure statistic with no public fact-check hit
-**时间**: 90s
-**理由**: 无外部证据，仅为模型推断（示例）。
-**来源**: （无外部证据 · model_inference）
+**已验证引文**:
+
+- **supports** — [Example source 1](https://one.example/boiling-point)
+  > At 1 atm, pure water boils near 100 °C.
+- **supports** — [Example source 2](https://two.example/boiling-point)
+  > At 1 atm, pure water boils near 100 °C.
+
+### 2. `insufficient_evidence` · 证据强度 `none`
+**声明**: 某冷门统计目前没有公开原始来源
+**视频原话**: “这个数字目前查不到公开原始来源”
+**时间**: [90s](https://www.bilibili.com/video/BV1EXAMPLE001?t=90)
+**判定依据**: 没有取得带精确引文且方向明确的外部证据。
+
+**已验证引文**: 无。搜索结果摘要不计入证据。

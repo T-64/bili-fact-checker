@@ -8,7 +8,6 @@ import pytest
 
 from bili_fact_checker.evidence.fetch import (
     FetchedPage,
-    PageFetchError,
     UnsafeUrlError,
     extract_html_article,
     extract_relevant_excerpts,
@@ -178,7 +177,7 @@ def test_redirect_to_private_network_is_blocked_before_second_request():
         title="redirect",
         url="https://93.184.216.34/report",
     )
-    with pytest.raises(PageFetchError, match="non-public"):
+    with pytest.raises(UnsafeUrlError, match="non-public"):
         fetch_candidate(candidate, document_id="doc_00001", client=client)
     client.close()
     assert calls == 1

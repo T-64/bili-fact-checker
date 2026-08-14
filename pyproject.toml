@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "bili-fact-checker"
-version = "0.1.0"
+version = "1.0.0"
 description = "Bilibili oral-content analysis and evidence-backed fact checking (CLI / API / Agent Skill)"
 readme = "README.md"
 license = { text = "MIT" }
@@ -22,7 +22,8 @@ dependencies = [
 [project.optional-dependencies]
 asr = ["faster-whisper>=1.0", "yt-dlp>=2025.1"]
 local-ml = ["sentence-transformers>=3,<6"]
-dev = ["pytest>=8.0"]
+dev = ["pytest>=8.0", "ruff>=0.6", "pip-audit>=2.7"]
+e2e = ["playwright>=1.40"]
 
 [project.scripts]
 bili-fact-checker = "bili_fact_checker.cli:main"
@@ -41,3 +42,10 @@ bili_fact_checker = ["web_dist/*.html", "web_dist/assets/*"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["src"]
+
+[tool.ruff]
+target-version = "py311"
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = ["E9", "F"]

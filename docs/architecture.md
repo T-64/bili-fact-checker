@@ -25,19 +25,19 @@ The important boundary is between discovery and evidence. Search APIs return
 candidates. Only successfully fetched pages with retained excerpts can enter
 the evidence classifier.
 
-## Package layout target
+## Package layout
 
 ```text
 src/bili_fact_checker/
-  api/          FastAPI routes, bounded jobs, auth
-  claims/       transcript chunking, extraction, anchoring, deduplication
+  api/          FastAPI routes, bounded jobs, auth, setup wizard
+  analyze/      transcript chunking, extraction, anchoring, deduplication
   evidence/     search, safe fetch, extraction, classification, aggregation
   ingest/       Bilibili metadata/subtitles, files, optional ASR
   models.py     versioned Pydantic domain and report models
-  providers/    OpenAI-compatible LLM and search adapters
+  providers/    LLM and native/fallback search adapters
   report/       JSON, Markdown and static HTML renderers
-  web_dist/     built React application included in wheels
-  cli.py        doctor, list, transcript, analyze, serve
+  web_dist/     bundled static evidence-review UI
+  cli.py        setup, doctor, list, transcript, analyze, serve
 ```
 
 Provider interfaces isolate network services from the pipeline. Tests use
@@ -126,8 +126,8 @@ source URLs is not evidence.
 - The default Docker Compose path reuses a supported AI provider and has no
   mandatory search container. SearXNG is an opt-in profile for users who want
   self-hosted metasearch.
-- The frontend is built separately with Vite and its compiled assets are bundled
-  inside the Python wheel and container.
+- The frontend is a single static HTML file bundled inside the Python wheel
+  and container. There is no separate Vite/React build step.
 
 ## Cost and usage boundary
 
