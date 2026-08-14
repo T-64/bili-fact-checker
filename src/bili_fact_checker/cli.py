@@ -8,7 +8,7 @@ import sys
 from pathlib import Path
 
 from bili_fact_checker import __version__
-from bili_fact_checker.config import Settings
+from bili_fact_checker.config import Settings, validate_api_bind
 from bili_fact_checker.diagnostics import run_doctor
 from bili_fact_checker.ingest import (
     extract_bvid,
@@ -38,6 +38,9 @@ def cmd_doctor(args: argparse.Namespace) -> int:
 
 
 def cmd_serve(args: argparse.Namespace) -> int:
+    settings = Settings.from_env()
+    validate_api_bind(args.host, settings.api_token)
+
     import uvicorn
 
     uvicorn.run(

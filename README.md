@@ -149,7 +149,12 @@ bili-fact-checker serve
 `~/.local/share/bili-fact-checker/jobs`；重启时未完成任务会标记为
 `interrupted`，可调用 `POST /v1/jobs/{id}/retry` 重试。另有任务历史、取消、
 JSON 报告和 HTML 报告接口。若要通过反向代理暴露，先设置强随机
-`BFC_API_TOKEN`，请求使用 `Authorization: Bearer ...`；不要无认证暴露到公网。
+`BFC_API_TOKEN`（至少 32 个字符），请求使用 `Authorization: Bearer ...`。
+`serve` 会拒绝在缺少强令牌时监听非回环地址；可用下面的命令生成令牌：
+
+```bash
+python -c "import secrets; print(secrets.token_urlsafe(32))"
+```
 
 自托管后把链接写进 blog 即可，见 [`docs/blog-integration.md`](docs/blog-integration.md)。
 
@@ -158,12 +163,16 @@ JSON 报告和 HTML 报告接口。若要通过反向代理暴露，先设置强
 默认 Compose 不需要单独的搜索服务，仍复用已配置 AI provider 的原生搜索：
 
 ```bash
-cp .env.example .env  # 填入 key、model 和可选的 BILI_SESSDATA
+cp .env.example .env
+# 填入 key、model、BFC_API_TOKEN 和可选的 BILI_SESSDATA；生成 token：
+python -c "import secrets; print(secrets.token_urlsafe(32))"
 docker compose up -d --build
 # 仅宿主机可访问：http://127.0.0.1:8765
 ```
 
-容器以非 root 用户运行，状态保存在 `bfc-data` volume。要主动选择自托管
+容器内服务监听非回环地址，因此即使 Compose 默认只发布到宿主机回环地址，
+也必须配置至少 32 个字符的 `BFC_API_TOKEN`。容器以非 root 用户运行，状态
+保存在 `bfc-data` volume。要主动选择自托管
 SearXNG 时，再把 `.env` 设为 `SEARCH_PROVIDER=searxng`、
 `SEARXNG_URL=http://searxng:8080`，并运行
 `docker compose --profile searxng up -d --build`。

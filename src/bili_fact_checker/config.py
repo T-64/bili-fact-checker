@@ -2,13 +2,48 @@
 
 from __future__ import annotations
 
+import ipaddress
 import os
 from dataclasses import dataclass
 from pathlib import Path
 
 
+MIN_PUBLIC_API_TOKEN_LENGTH = 32
+
+
 def _env(name: str, default: str = "") -> str:
     return os.environ.get(name, default).strip()
+
+
+def is_loopback_host(host: str) -> bool:
+    """Return whether a server bind target is unambiguously loopback-only."""
+
+    normalized = host.strip().lower().rstrip(".")
+    if normalized == "localhost":
+        return True
+    if normalized.startswith("[") and normalized.endswith("]"):
+        normalized = normalized[1:-1]
+    try:
+        return ipaddress.ip_address(normalized).is_loopback
+    except ValueError:
+        # Hostnames other than localhost can resolve differently over time. Treat
+        # them as non-loopback so an ambiguous bind never disables authentication.
+        return False
+
+
+def validate_api_bind(host: str, api_token: str) -> None:
+    """Reject unauthenticated or weakly authenticated non-loopback binds."""
+
+    if is_loopback_host(host):
+        return
+    if len(api_token.strip()) < MIN_PUBLIC_API_TOKEN_LENGTH:
+        raise ValueError(
+            f"refusing non-loopback API bind to {host!r}: set BFC_API_TOKEN to "
+            "a token of at least "
+            f"{MIN_PUBLIC_API_TOKEN_LENGTH} characters "
+            "(generate one with: python -c \"import secrets; "
+            "print(secrets.token_urlsafe(32))\")"
+        )
 
 
 def _load_glm_from_hermes() -> str:
