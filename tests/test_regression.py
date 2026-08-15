@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
+
 from bili_fact_checker.analyze import _validated_anchor
+from bili_fact_checker.config import Settings
 from bili_fact_checker.evidence.core import aggregate_verdict
 from bili_fact_checker.evidence.fetch import FetchedPage, PageFetchError, UnsafeUrlError
 from bili_fact_checker.evidence.service import EvidenceService
@@ -20,7 +23,15 @@ from bili_fact_checker.models import (
     utc_now,
 )
 from bili_fact_checker.providers.search import SearchBatch, SearchUnavailableError
-from tests.test_evidence_service import configured_settings
+
+
+def configured_settings(**changes) -> Settings:
+    values = {
+        "max_searches_per_claim": 1,
+        "search_results_per_query": 5,
+        **changes,
+    }
+    return replace(Settings.from_env(), **values)
 
 
 def _claim(**changes) -> AtomicClaim:

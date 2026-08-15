@@ -42,6 +42,7 @@ bili_fact_checker = ["web_dist/*.html", "web_dist/assets/*"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["src"]
+addopts = "--import-mode=importlib"
 
 [tool.ruff]
 target-version = "py311"
