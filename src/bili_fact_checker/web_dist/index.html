@@ -40,6 +40,11 @@
     .composer-foot{display:flex;align-items:end;justify-content:space-between;gap:16px}.checks{display:flex;gap:16px;flex-wrap:wrap;color:var(--muted);font-size:13px}.checks label{font-weight:500;margin:0}
     .budget{text-align:right;color:var(--muted);font-size:12px}.budget strong{color:var(--ink);font-size:14px}.primary{width:auto;min-width:150px;margin-top:7px}
     .notice{margin:15px 0 0;padding:10px 12px;background:var(--amber-soft);border-left:3px solid var(--amber);font-size:13px}.hidden{display:none!important}
+    .bili-login{margin:0 0 18px;padding:14px 16px;border:1px solid var(--line);border-radius:8px;background:var(--sheet)}
+    .bili-login-top{display:flex;justify-content:space-between;gap:12px;align-items:center;flex-wrap:wrap}
+    .bili-login b{display:block}.bili-login .hint{margin:4px 0 0;font-size:13px;color:var(--muted)}
+    .bili-qr{width:min(240px,100%);margin:12px 0 0;padding:12px;background:#fff;border:1px solid var(--line);border-radius:6px}
+    .bili-qr svg{width:100%;height:auto;display:block}
     .report-head{margin-top:30px;border-bottom:1px solid var(--line);padding-bottom:16px}.eyebrow{color:var(--green);font-size:12px;font-weight:800;letter-spacing:.08em}.report-head h2{font:700 clamp(23px,3vw,34px)/1.25 ui-serif,"Noto Serif SC",Georgia,serif;margin:5px 0}.report-meta{color:var(--muted);font-size:13px}
     .stats{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin:18px 0}.stat{border:1px solid var(--line);background:var(--sheet);padding:10px 12px;border-radius:5px}.stat strong{display:block;font-size:22px}.stat.supported strong{color:var(--green)}.stat.refuted strong{color:var(--red)}.stat.disputed strong{color:var(--blue)}.stat.insufficient strong{color:var(--amber)}
     .report-grid{display:grid;grid-template-columns:230px minmax(0,1fr);gap:14px}.claim-list{border:1px solid var(--line);background:var(--sheet);align-self:start}.claim-tab{display:grid;grid-template-columns:24px 1fr;gap:8px;width:100%;padding:12px;border:0;border-bottom:1px solid var(--soft);background:transparent;text-align:left;color:var(--ink)}.claim-tab:hover,.claim-tab.active{background:#f4f0e7}.claim-tab.active{box-shadow:inset 3px 0 var(--red)}.claim-tab small{display:block;color:var(--muted);margin-top:3px}.claim-detail{border:1px solid var(--line);background:var(--sheet);padding:20px;min-width:0}.verdict-line{display:flex;align-items:center;gap:9px;flex-wrap:wrap}.badge{display:inline-flex;align-items:center;border-radius:99px;padding:3px 8px;font-size:12px;font-weight:800}.supported{background:var(--green-soft);color:var(--green)}.refuted{background:var(--red-soft);color:var(--red)}.disputed{background:var(--blue-soft);color:var(--blue)}.insufficient_evidence{background:var(--amber-soft);color:var(--amber)}
@@ -66,6 +71,18 @@
   <main class="main">
     <header class="topline"><h2 id="viewTitle">新建核查</h2><button class="ghost" id="refresh">刷新状态</button></header>
     <section class="composer" id="composer">
+      <div class="bili-login" id="biliLoginPanel">
+        <div class="bili-login-top">
+          <div>
+            <b>B 站登录</b>
+            <p class="hint" id="biliQrStatus">打开本页后会检测本机登录态。扫码后请留在此页。</p>
+          </div>
+          <div class="progress-actions" style="margin:0">
+            <button class="ghost" id="biliLogin" type="button">扫码登录</button>
+          </div>
+        </div>
+        <div class="bili-qr hidden" id="biliQrBox"></div>
+      </div>
       <form id="setupForm" class="hidden">
         <p class="hint" style="margin-top:0;color:var(--muted)">先配置一个 AI 提供商。原生搜索会复用同一账号；可能产生供应商费用，本工具不估算价格。密钥不会写入报告。</p>
         <div class="field"><label for="setupPreset">提供商</label>
@@ -80,7 +97,7 @@
         <div class="field"><label for="setupBase">API Base</label><input id="setupBase" type="text" required maxlength="300" value="https://api.z.ai/api/paas/v4"></div>
         <div class="field"><label for="setupKey">API Key</label><input id="setupKey" type="password" autocomplete="off" maxlength="2000"></div>
         <div class="field"><label for="setupModel">Model</label><input id="setupModel" type="text" required maxlength="200" value="glm-4-flash"></div>
-        <div class="field"><label for="setupSess">Bilibili SESSDATA（可选，登录字幕用）</label><input id="setupSess" type="password" autocomplete="off" maxlength="4000"></div>
+        <div class="field"><label for="setupSess">Bilibili SESSDATA（可选，也可直接扫码）</label><input id="setupSess" type="password" autocomplete="off" maxlength="4000"></div>
         <label class="checks" style="margin:8px 0 16px"><input id="setupPersist" type="checkbox"> 保存到本机配置文件（权限 0600，仅在勾选后写入）</label>
         <div class="progress-actions">
           <button class="primary" id="saveSetup" type="submit">保存并继续</button>
@@ -117,7 +134,7 @@
 </div>
 
 <script>
-  const state={status:null,jobs:[],active:null,report:null,claim:0,timer:null};
+  const state={status:null,jobs:[],active:null,report:null,claim:0,timer:null,biliQrStarted:false,biliPolling:false,biliSession:'idle'};
   const $=id=>document.getElementById(id);
   const esc=value=>String(value??'').replace(/[&<>'"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[c]));
   const token=()=>sessionStorage.getItem('bfc_token')||'';
@@ -129,10 +146,10 @@
     const data=await response.json().catch(()=>({detail:response.statusText}));if(!response.ok)throw new Error(typeof data.detail==='string'?data.detail:(Array.isArray(data.detail)?data.detail.map(x=>x.msg||x).join('；'):'请求失败'));return data;
   }
   function showNotice(message,error=false){$('notice').textContent=message;$('notice').classList.toggle('hidden',!message);$('notice').style.borderColor=error?'var(--red)':'var(--amber)';}
-  function eventLabel(code){return({search_unavailable:'搜索不可用',search_failed:'搜索失败',search_budget_exhausted:'搜索预算耗尽',page_blocked:'页面被安全策略拒绝',page_fetch_failed:'页面访问失败',extraction_failed:'正文提取失败',assessment_failed:'证据判断失败',login_required:'需要登录字幕'}[code]||code);}
+  function eventLabel(code){return({search_unavailable:'搜索不可用',search_failed:'搜索失败',search_budget_exhausted:'搜索预算耗尽',page_blocked:'页面被安全策略拒绝',page_fetch_failed:'页面访问失败',extraction_failed:'正文提取失败',assessment_failed:'证据判断失败',login_required:'需要登录字幕',model_prior_used:'使用模型先验',model_prior_failed:'模型先验失败'}[code]||code);}
   function claimIssues(claimId){
     const events=(state.report?.events||[]).filter(e=>e.details?.claim_id===claimId);
-    const codes=[...new Set(events.map(e=>e.code).filter(c=>['search_unavailable','search_failed','search_budget_exhausted','page_blocked','page_fetch_failed','extraction_failed'].includes(c)))];
+    const codes=[...new Set(events.map(e=>e.code).filter(c=>['search_unavailable','search_failed','search_budget_exhausted','page_blocked','page_fetch_failed','extraction_failed','model_prior_used','model_prior_failed'].includes(c)))];
     if(!codes.length)return '';
     return `<div class="notice" style="margin:12px 0">${codes.map(c=>esc(eventLabel(c))).join(' · ')}</div>`;
   }
@@ -159,7 +176,8 @@
   function renderProvider(){
     const s=state.status;if(!s){$('provider').innerHTML='<span class="job-meta">状态不可用</span>';return;}
     const search=s.search_provider==='none'?'不可用':s.search_provider;
-    $('provider').innerHTML=`<div class="provider-row"><span><i class="dot"></i>语言模型</span><b>${esc(s.llm_provider)}</b></div><div class="provider-row"><span><i class="dot" style="background:${s.search_provider==='none'?'var(--amber)':'var(--green)'}"></i>网页搜索</span><b>${esc(search)}</b></div><div class="hint">${s.search_native_to_llm?'复用同一个 AI 账号，不需要额外搜索 key。':'使用独立或外部搜索配置。'}<br>能力检测没有发起付费探测。</div><button class="ghost" id="openSetup" type="button" style="width:100%;margin-top:10px">配置提供商</button>`;
+    const bili=s.bilibili?.logged_in?(s.bilibili.name||'已登录'):(s.bilibili?.message||'未登录');
+    $('provider').innerHTML=`<div class="provider-row"><span><i class="dot"></i>语言模型</span><b>${esc(s.llm_provider)}</b></div><div class="provider-row"><span><i class="dot" style="background:${s.search_provider==='none'?'var(--amber)':'var(--green)'}"></i>网页搜索</span><b>${esc(search)}</b></div><div class="provider-row"><span><i class="dot" style="background:${s.bilibili?.logged_in?'var(--green)':'var(--amber)'}"></i>B 站登录</span><b>${esc(bili)}</b></div><div class="hint">${s.search_native_to_llm?'复用同一个 AI 账号，不需要额外搜索 key。':'使用独立或外部搜索配置。'}<br>能力检测没有发起付费探测。</div><button class="ghost" id="openSetup" type="button" style="width:100%;margin-top:10px">配置提供商</button>`;
     if($('openSetup'))$('openSetup').onclick=openSetup;
   }
   function renderBudget(){const p=document.querySelector('input[name=preset]:checked').value;const preset=state.status?.presets?.[p];$('budget').innerHTML=preset?`最多 <strong>${preset.max_claims}</strong> 条声明 · <strong>${preset.max_searches_per_run}</strong> 次搜索调用<br>证据达标会提前停止，缓存命中不重复调用`:'预算以服务端配置为准';}
@@ -184,7 +202,7 @@
   }
   function renderClaim(index){
     state.claim=index;const item=state.report.claims[index];if(!item)return;const c=item.claim,v=item.verdict;const times=(c.timestamps_sec||[c.timestamp_sec]).map(t=>`<a href="${esc(state.report.video.url)}${state.report.video.url.includes('?')?'&':'?'}t=${Number(t)}" target="_blank" rel="noopener">${Number(t)}s ↗</a>`).join('、');
-    $('claimDetail').innerHTML=`<div class="verdict-line"><span class="badge ${esc(v.verdict)}">${esc(verdictLabel(v.verdict))}</span><span>证据强度：<b>${esc(v.strength)}</b></span>${v.needs_human_review?'<span class="badge disputed">需要人工复核</span>':''}</div><h3>${esc(c.claim_zh)}</h3><blockquote class="quote">“${esc(c.quote)}”<br><small>${times}</small></blockquote>${claimIssues(c.id)}<div class="rule"><b>确定性判定依据：</b>${esc(v.reason)}<br>搜索摘要与模型记忆不计入证据；只有下列成功抓取的精确引文参与判定。</div><section class="evidence-group"><h4 style="color:var(--green)">支持证据</h4>${evidenceCards(item,'supports')}</section><section class="evidence-group"><h4 style="color:var(--red)">反驳证据</h4>${evidenceCards(item,'refutes')}</section><section class="evidence-group"><h4 style="color:var(--blue)">背景与语境</h4>${evidenceCards(item,'context')}</section>`;
+    $('claimDetail').innerHTML=`<div class="verdict-line"><span class="badge ${esc(v.verdict)}">${esc(verdictLabel(v.verdict))}</span><span>证据强度：<b>${esc(v.strength)}</b></span>${v.basis==='model_prior'?'<span class="badge disputed">模型先验</span>':''}${v.needs_human_review?'<span class="badge disputed">需要人工复核</span>':''}</div><h3>${esc(c.claim_zh)}</h3><blockquote class="quote">“${esc(c.quote)}”<br><small>${times}</small></blockquote>${claimIssues(c.id)}<div class="rule"><b>判定依据：</b>${esc(v.reason)}<br>${v.basis==='model_prior'?'无外部引文时由模型通识兜底，不是证据裁决，需要人工复核。':'搜索摘要不计入证据；只有下列成功抓取的精确引文参与证据裁决。'}</div><section class="evidence-group"><h4 style="color:var(--green)">支持证据</h4>${evidenceCards(item,'supports')}</section><section class="evidence-group"><h4 style="color:var(--red)">反驳证据</h4>${evidenceCards(item,'refutes')}</section><section class="evidence-group"><h4 style="color:var(--blue)">背景与语境</h4>${evidenceCards(item,'context')}</section>`;
     document.querySelectorAll('.claim-tab').forEach((x,i)=>x.classList.toggle('active',i===index));
   }
   function renderReport(report){
@@ -195,7 +213,23 @@
   async function refreshStatus(){
     try{state.status=await api('/v1/status');renderProvider();renderBudget();const data=await api('/v1/jobs?limit=30');state.jobs=data.jobs||[];renderHistory();
       if(!state.status.ready&&!state.active)await openSetup();
-      showNotice(state.status.ready?'':(state.status.checks||[]).filter(x=>x.status==='error').map(x=>x.message).join('；'),!state.status.ready);}catch(error){if(error.message!=='需要访问令牌')showNotice(error.message,true);}
+      const bili=state.status.bilibili||{};
+      if(!state.status.ready)showNotice((state.status.checks||[]).filter(x=>x.status==='error').map(x=>x.message).join('；'),true);
+      else if(!bili.logged_in&&!state.active)showNotice(bili.message||'B 站未登录，登录字幕不可用。',true);
+      else showNotice('');
+      if(bili.logged_in){
+        $('biliQrBox').classList.add('hidden');
+        $('biliQrStatus').textContent=bili.message||('已登录 '+(bili.name||''));
+      }else if($('biliQrStatus')&&!$('biliQrBox').innerHTML&&!['pending','scanned'].includes(state.biliSession)){
+        $('biliQrStatus').textContent=bili.message||'未登录';
+      }
+    }catch(error){if(error.message!=='需要访问令牌')showNotice(error.message,true);}
+    try{
+      const session=await api('/v1/setup/bilibili/session');
+      const next=applyBiliSession(session);
+      if(next==='watch')watchBiliSession();
+      else if(next==='done'){/* status already rendered */}
+    }catch(_error){/* session endpoint optional on old servers */}
   }
   async function loadJob(id){
     clearTimeout(state.timer);try{const job=await api('/v1/jobs/'+id);state.active=job;renderHistory();renderAudit(job,state.report?.video?.bvid===job.request?.bvid?state.report:null);$('viewTitle').textContent='任务 '+job.id;
@@ -206,6 +240,50 @@
   async function cancelActive(){if(!state.active)return;await api(`/v1/jobs/${state.active.id}/cancel`,{method:'POST'});loadJob(state.active.id);}
   async function retryActive(){if(!state.active)return;const job=await api(`/v1/jobs/${state.active.id}/retry`,{method:'POST'});loadJob(job.id);}
   $('setupPreset').onchange=()=>{if($('setupPreset').value)$('setupBase').value=$('setupPreset').value;};
+  let biliTimer=null;
+  function applyBiliSession(session){
+    state.biliSession=session.status||'idle';
+    if(session.status==='pending'||session.status==='scanned'){
+      if(session.svg){$('biliQrBox').innerHTML=session.svg;$('biliQrBox').classList.remove('hidden');}
+      $('biliQrStatus').textContent=session.message||(session.status==='scanned'?'已扫码，请在手机上确认':'等待扫码确认');
+      return 'watch';
+    }
+    if(session.status==='success'){
+      $('biliQrBox').classList.add('hidden');
+      $('biliQrStatus').textContent=session.message||('已登录 '+(session.uname||''));
+      return 'done';
+    }
+    if(session.status==='expired'||session.status==='error'){
+      $('biliQrStatus').textContent=session.message||'登录失败';
+      return 'stop';
+    }
+    return 'idle';
+  }
+  async function watchBiliSession(){
+    clearInterval(biliTimer);
+    biliTimer=setInterval(async()=>{
+      if(state.biliPolling)return;
+      state.biliPolling=true;
+      try{
+        const session=await api('/v1/setup/bilibili/session');
+        const next=applyBiliSession(session);
+        if(next==='done'){clearInterval(biliTimer);await refreshStatus();}
+        else if(next==='stop'){clearInterval(biliTimer);state.biliQrStarted=false;}
+      }catch(_error){/* keep watching; server-side poll continues */}
+      finally{state.biliPolling=false;}
+    },1000);
+  }
+  async function startBiliLogin(){
+    clearInterval(biliTimer);
+    $('biliQrStatus').textContent='正在获取二维码…';
+    $('biliQrBox').classList.add('hidden');
+    try{
+      const data=await api('/v1/setup/bilibili/qrcode',{method:'POST'});
+      applyBiliSession({status:'pending',message:'用哔哩哔哩 App 扫描，然后在手机上确认',svg:data.svg});
+      await watchBiliSession();
+    }catch(error){state.biliQrStarted=false;$('biliQrStatus').textContent=error.message;}
+  }
+  $('biliLogin').onclick=()=>{state.biliQrStarted=true;startBiliLogin();};
   $('setupForm').onsubmit=async event=>{event.preventDefault();showNotice('');$('saveSetup').disabled=true;try{const result=await api('/v1/setup',{method:'PUT',body:JSON.stringify({openai_api_base:$('setupBase').value.trim(),openai_api_key:$('setupKey').value,openai_model:$('setupModel').value.trim(),sessdata:$('setupSess').value,persist:$('setupPersist').checked})});$('setupKey').value='';$('setupSess').value='';await refreshStatus();if(result.ready){showSetup(false);$('viewTitle').textContent='新建核查';showNotice(result.persisted?'已保存到本机配置文件。':'已用于当前进程；重启后需重新配置。');} }catch(error){showNotice(error.message,true);}finally{$('saveSetup').disabled=false;}};
   $('clearSetup').onclick=async()=>{if(!confirm('清除已保存的配置文件？环境变量中的密钥不会被删除。'))return;try{await api('/v1/setup',{method:'DELETE'});$('setupKey').value='';$('setupSess').value='';await refreshStatus();showNotice('已清除保存的配置文件。');}catch(error){showNotice(error.message,true);}};
   async function loadParts(){

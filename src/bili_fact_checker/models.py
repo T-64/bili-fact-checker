@@ -194,6 +194,7 @@ class ClaimVerdict(StrictModel):
     context_excerpt_ids: list[str] = Field(default_factory=list)
     reason: str
     needs_human_review: bool = False
+    basis: Literal["evidence", "model_prior"] = "evidence"
 
 
 class ClaimAnalysis(StrictModel):

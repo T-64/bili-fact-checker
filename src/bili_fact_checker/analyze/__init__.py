@@ -12,7 +12,8 @@ from bili_fact_checker.ingest import Segment, Transcript
 from bili_fact_checker.providers import chat, extract_json_array
 
 
-CHUNK_CHARS = 4500
+# glm-4-flash on Z.AI hangs past ~4k chars of claim-extraction JSON.
+CHUNK_CHARS = 2200
 CHUNK_OVERLAP = 400
 
 

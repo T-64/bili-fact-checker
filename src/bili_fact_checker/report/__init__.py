@@ -161,9 +161,11 @@ def to_markdown(report: AnalysisReport | dict[str, Any]) -> str:
                 f"**视频原话**: “{claim.get('quote')}”",
                 f"**时间**: {time_links}",
                 f"**判定依据**: {verdict.get('reason')}",
-                "",
             ]
         )
+        if verdict.get("basis") == "model_prior":
+            lines.append("**判定来源**: 模型先验（非引文，需人工复核）")
+        lines.append("")
         document_map = {
             value.get("id"): value for value in item.get("documents") or []
         }
@@ -195,7 +197,14 @@ def to_markdown(report: AnalysisReport | dict[str, Any]) -> str:
                     ]
                 )
         else:
-            lines.append("**已验证引文**: 无。搜索结果摘要不计入证据。")
+            lines.append(
+                "**已验证引文**: 无。"
+                + (
+                    " 本次结论来自模型通识，不是网页引文。"
+                    if verdict.get("basis") == "model_prior"
+                    else " 搜索结果摘要不计入证据。"
+                )
+            )
         lines.append("")
 
     events = data.get("events") or []
@@ -253,7 +262,12 @@ def to_html(report: AnalysisReport | dict[str, Any]) -> str:
         evidence_body = (
             f"<ul class=\"evidence\">{''.join(evidence_html)}</ul>"
             if evidence_html
-            else '<p class="muted">无已验证引文；搜索摘要不计入证据。</p>'
+            else '<p class="muted">无已验证引文。' + (
+                "本次结论来自模型通识，不是网页引文。"
+                if verdict.get("basis") == "model_prior"
+                else "搜索摘要不计入证据。"
+            )
+            + "</p>"
         )
         cards.append(
             f"""

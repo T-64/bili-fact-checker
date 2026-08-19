@@ -6,7 +6,7 @@ probe.
 
 | Provider | API base example | LLM protocol | Native search protocol |
 |---|---|---|---|
-| Z.AI / 智谱 | `https://api.z.ai/api/paas/v4` | OpenAI-compatible Chat Completions | structured `/web_search` |
+| Z.AI / 智谱 | `https://api.z.ai/api/paas/v4` | OpenAI-compatible Chat Completions | GLM Coding Plan MCP `web_search_prime` |
 | OpenAI | `https://api.openai.com/v1` | Chat Completions | Responses `web_search` |
 | Gemini | `https://generativelanguage.googleapis.com/v1beta` | native `generateContent` | Interactions `google_search` |
 | Anthropic | `https://api.anthropic.com/v1` | native Messages | versioned server-side web search |
@@ -76,8 +76,9 @@ export SEARCH_PROVIDER=tavily
 export TAVILY_API_KEY=...
 ```
 
-`SEARCH_PROVIDER=offline` or `none` disables open-web discovery. Claims without
-already available evidence then remain `insufficient_evidence`.
+`SEARCH_PROVIDER=offline` or `none` disables open-web discovery. Claims then
+use the model-prior fallback if the model can judge from 通识; otherwise they
+remain `insufficient_evidence`.
 
 ## Compatibility and billing boundary
 

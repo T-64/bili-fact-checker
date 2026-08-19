@@ -204,4 +204,5 @@ def aggregate_verdict(
         context_excerpt_ids=context_ids,
         reason=reason,
         needs_human_review=needs_review or bool(support_ids or refute_ids),
+        basis="evidence",
     )

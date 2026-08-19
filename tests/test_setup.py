@@ -22,6 +22,9 @@ def isolate_config(monkeypatch, tmp_path) -> None:
         monkeypatch.delenv(name, raising=False)
     monkeypatch.setattr("bili_fact_checker.config._load_glm_from_hermes", lambda: "")
     monkeypatch.setattr("bili_fact_checker.config._load_sessdata_file", lambda: "")
+    monkeypatch.setattr(
+        "bili_fact_checker.config._load_sessdata_from_cookie_file", lambda: ""
+    )
 
 
 def test_user_config_is_used_when_env_is_empty(tmp_path, monkeypatch):

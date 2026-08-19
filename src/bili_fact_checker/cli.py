@@ -6,6 +6,7 @@ import argparse
 import getpass
 import json
 import sys
+import time
 from pathlib import Path
 
 from bili_fact_checker import __version__
@@ -18,11 +19,21 @@ from bili_fact_checker.config import (
 )
 from bili_fact_checker.diagnostics import build_support_bundle, run_doctor
 from bili_fact_checker.ingest import (
+    check_bili_login,
     extract_bvid,
     fetch_transcript,
     fetch_video_info,
     list_subtitles,
     select_video_part,
+)
+from bili_fact_checker.ingest.login import (
+    default_sessdata_path,
+    generate_login_qr,
+    import_netscape_cookie_text,
+    persist_bili_login,
+    poll_login_qr,
+    print_qr_ascii,
+    should_update_user_config,
 )
 from bili_fact_checker.pipeline import run_pipeline
 from bili_fact_checker.report import dumps_json, to_html, to_markdown
@@ -95,6 +106,76 @@ def cmd_setup(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_login(args: argparse.Namespace) -> int:
+    settings = Settings.from_env()
+    if getattr(args, "from_file", None):
+        path = Path(args.from_file).expanduser()
+        try:
+            text = path.read_text(encoding="utf-8")
+            merged = import_netscape_cookie_text(
+                settings,
+                text,
+                persist_config=should_update_user_config(False),
+            )
+        except Exception as exc:
+            _err(f"error: {exc}")
+            return 1
+        ok, info = check_bili_login(merged)
+        print(f"已导入 {path} → {merged.cookie_file}（内容不显示）")
+        if ok:
+            print(f"已登录：{info}")
+            return 0
+        _err(f"Cookie 已写入，但登录校验失败：{info}")
+        return 1
+
+    try:
+        qr = generate_login_qr(settings)
+    except Exception as exc:
+        _err(f"error: {exc}")
+        return 1
+    print("用哔哩哔哩 App 扫描下面的二维码，或在已登录设备打开：")
+    print(qr.url)
+    print()
+    try:
+        print_qr_ascii(qr.url)
+    except Exception:
+        print("（未能在终端绘制二维码，请用手机打开上面的链接）")
+    print()
+    print("等待扫码确认…（Ctrl+C 取消）")
+    try:
+        while True:
+            result = poll_login_qr(settings, qr.qrcode_key)
+            if result.status == "pending":
+                time.sleep(1.5)
+                continue
+            if result.status == "scanned":
+                print("已扫码，请在手机上确认登录…")
+                time.sleep(1.0)
+                continue
+            if result.status == "expired":
+                _err("二维码已过期，请重新运行 bili-fact-checker login")
+                return 1
+            if result.status != "success":
+                _err(result.message or "登录失败")
+                return 1
+            merged = persist_bili_login(
+                settings,
+                result.cookies or {},
+                persist_config=should_update_user_config(False),
+            )
+            ok, info = check_bili_login(merged)
+            sess_path = default_sessdata_path()
+            print(f"已写入 {sess_path} 和 {merged.cookie_file}（内容不显示）")
+            if ok:
+                print(f"已登录：{info}")
+                return 0
+            _err(f"Cookie 已写入，但登录校验失败：{info}")
+            return 1
+    except KeyboardInterrupt:
+        _err("已取消")
+        return 1
+
+
 def cmd_doctor(args: argparse.Namespace) -> int:
     settings = Settings.from_env()
     if getattr(args, "output", None):
@@ -164,8 +245,6 @@ def cmd_subtitle(args: argparse.Namespace) -> int:
 def cmd_list(args: argparse.Namespace) -> int:
     settings = Settings.from_env()
     bvid = extract_bvid(args.input)
-    from bili_fact_checker.ingest import check_bili_login
-
     ok, info = check_bili_login(settings)
     _err(f"bilibili login: {'OK · ' + info if ok else 'NOT LOGGED IN · ' + info}")
     metadata = fetch_video_info(settings, bvid)
@@ -248,6 +327,17 @@ def build_parser() -> argparse.ArgumentParser:
         help="delete the saved local config file",
     )
     setup.set_defaults(func=cmd_setup)
+
+    login = sub.add_parser(
+        "login",
+        help="import a Netscape cookies.txt or scan a Bilibili QR code",
+    )
+    login.add_argument(
+        "--from-file",
+        metavar="COOKIES.TXT",
+        help="import Netscape cookies.txt (yt-dlp / BBDown / curl format)",
+    )
+    login.set_defaults(func=cmd_login)
 
     serve = sub.add_parser("serve", help="run the local API and web interface")
     serve.add_argument("--host", default="127.0.0.1")

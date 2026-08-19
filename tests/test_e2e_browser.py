@@ -65,6 +65,7 @@ def test_browser_setup_submit_and_inspect_report(tmp_path, monkeypatch):
         Settings.from_env(),
         openai_api_key="",
         openai_model="",
+        sessdata="",
         data_dir=tmp_path,
         job_workers=1,
         api_token="",

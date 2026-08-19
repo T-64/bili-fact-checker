@@ -65,7 +65,22 @@ def test_open_url_does_not_retry_client_errors(monkeypatch):
 
     try:
         open_url("http://example.test/a")
-        raise AssertionError("expected HTTPError")
-    except urllib.error.HTTPError as exc:
-        assert exc.code == 404
+        raise AssertionError("expected HTTP error")
+    except RuntimeError as exc:
+        assert "HTTP 404" in str(exc)
+    assert opener.calls == 1
+
+
+def test_open_url_does_not_retry_read_timeouts(monkeypatch):
+    opener = FakeOpener([TimeoutError("The read operation timed out")])
+    monkeypatch.setattr(
+        "bili_fact_checker.httputil.urllib.request.build_opener",
+        lambda *_args: opener,
+    )
+
+    try:
+        open_url("http://example.test/a", retries=4, timeout=1)
+        raise AssertionError("expected timeout")
+    except TimeoutError:
+        pass
     assert opener.calls == 1

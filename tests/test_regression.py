@@ -191,6 +191,7 @@ def test_no_pages_remain_insufficient_even_with_poisoned_snippet():
             PageFetchError("offline")
         ),
         excerpt_assessor=_assessor(EvidenceStance.SUPPORTS),
+        prior_assessor=lambda *_a, **_k: None,
     )
     result = service.analyze_claim(_claim())
     assert result.analysis.verdict.verdict == Verdict.INSUFFICIENT_EVIDENCE
@@ -243,6 +244,7 @@ def test_blocked_url_is_recorded_as_page_blocked():
         ScriptedSearch(["https://example.com/a"]),
         page_fetcher=fetch,
         excerpt_assessor=_assessor(EvidenceStance.SUPPORTS),
+        prior_assessor=lambda *_a, **_k: None,
     )
     result = service.analyze_claim(_claim())
     assert any(event.code == "page_blocked" for event in result.events)
@@ -255,6 +257,7 @@ def test_search_unavailable_is_recorded():
         ScriptedSearch([], error=SearchUnavailableError("provider down")),
         page_fetcher=lambda *_a, **_k: (_ for _ in ()).throw(AssertionError("no fetch")),
         excerpt_assessor=_assessor(EvidenceStance.SUPPORTS),
+        prior_assessor=lambda *_a, **_k: None,
     )
     result = service.analyze_claim(_claim())
     assert any(event.code == "search_unavailable" for event in result.events)

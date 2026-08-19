@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from dataclasses import replace
 
 import pytest
@@ -18,6 +19,7 @@ from bili_fact_checker.providers.search import (
     ZaiSearchProvider,
     build_search_provider,
     detect_native_search_provider,
+    zai_mcp_search_url,
     _native_search_prompt,
 )
 
@@ -105,25 +107,46 @@ def test_explicit_native_routes_every_implemented_adapter(base, provider_type):
     assert isinstance(build_search_provider(configured), provider_type)
 
 
-def test_zai_structured_results_are_normalized_and_malformed_urls_rejected():
+def test_zai_mcp_results_are_normalized_and_malformed_urls_rejected():
     calls = []
 
     def transport(url, payload, **kwargs):
         calls.append((url, payload, kwargs))
-        return {
-            "request_id": "request-123",
-            "search_result": [
-                {
-                    "title": "官方统计",
-                    "content": "这是用于发现网页的摘要，不是最终证据。",
-                    "link": "https://stats.example/report",
-                    "media": "统计机构",
-                    "publish_date": "2026-08-01",
-                    "refer": "ref_1",
-                },
-                {"title": "bad", "link": "javascript:alert(1)"},
-                "not-an-object",
-            ],
+        method = payload.get("method")
+        if method == "initialize":
+            return {"Mcp-Session-Id": "sess-1"}, {"jsonrpc": "2.0", "id": 1, "result": {}}
+        if method == "notifications/initialized":
+            return {}, {}
+        assert method == "tools/call"
+        assert payload["params"]["name"] == "web_search_prime"
+        assert payload["params"]["arguments"]["search_query"] == "某项官方统计"
+        return {}, {
+            "jsonrpc": "2.0",
+            "id": 2,
+            "result": {
+                "content": [
+                    {
+                        "type": "text",
+                        "text": json.dumps(
+                            {
+                                "request_id": "request-123",
+                                "search_result": [
+                                    {
+                                        "title": "官方统计",
+                                        "content": "这是用于发现网页的摘要，不是最终证据。",
+                                        "link": "https://stats.example/report",
+                                        "media": "统计机构",
+                                        "publish_date": "2026-08-01",
+                                        "refer": "ref_1",
+                                    },
+                                    {"title": "bad", "link": "javascript:alert(1)"},
+                                    "not-an-object",
+                                ],
+                            }
+                        ),
+                    }
+                ]
+            },
         }
 
     configured = settings(
@@ -144,9 +167,9 @@ def test_zai_structured_results_are_normalized_and_malformed_urls_rejected():
         )
     )
 
-    assert calls[0][0] == "https://api.z.ai/api/paas/v4/web_search"
-    assert calls[0][1]["search_query"] == "某项官方统计"
-    assert calls[0][2]["headers"] == {"Authorization": "Bearer secret"}
+    assert calls[0][0] == "https://api.z.ai/api/mcp/web_search_prime/mcp"
+    assert calls[0][2]["headers"]["Authorization"] == "Bearer secret"
+    assert calls[2][2]["headers"]["Mcp-Session-Id"] == "sess-1"
     assert len(batch.candidates) == 1
     candidate = batch.candidates[0]
     assert candidate.id == "candidate_00007"
@@ -157,6 +180,40 @@ def test_zai_structured_results_are_normalized_and_malformed_urls_rejected():
     assert batch.usage.provider_request_id == "request-123"
     assert batch.usage.billable_uses is None
     assert batch.warnings == ["rejected 2 malformed search result(s)"]
+
+
+def test_zai_mcp_parses_double_encoded_result_array():
+    def transport(url, payload, **kwargs):
+        method = payload.get("method")
+        if method == "initialize":
+            return {}, {"jsonrpc": "2.0", "id": 1, "result": {}}
+        if method == "notifications/initialized":
+            return {}, {}
+        inner = json.dumps(
+            [{"title": "论文", "link": "https://sleep.example/paper", "content": "摘要"}]
+        )
+        return {}, {
+            "jsonrpc": "2.0",
+            "id": 2,
+            "result": {
+                "isError": False,
+                "content": [{"type": "text", "text": json.dumps(inner)}],
+            },
+        }
+
+    batch = ZaiSearchProvider(
+        settings(openai_api_key="secret", openai_api_base="https://api.z.ai/api/paas/v4"),
+        transport=transport,
+    ).search(SearchRequest(query_id="query_0001_01", text="分段睡眠"))
+    assert len(batch.candidates) == 1
+    assert str(batch.candidates[0].url) == "https://sleep.example/paper"
+
+
+def test_zai_mcp_url_uses_bigmodel_host():
+    assert (
+        zai_mcp_search_url("https://open.bigmodel.cn/api/paas/v4")
+        == "https://open.bigmodel.cn/api/mcp/web_search_prime/mcp"
+    )
 
 
 def test_zai_missing_key_fails_before_network_call():

@@ -14,7 +14,7 @@ from urllib.parse import urlencode, urlsplit
 from pydantic import ValidationError
 
 from bili_fact_checker.config import Settings
-from bili_fact_checker.httputil import get_json, post_json
+from bili_fact_checker.httputil import get_json, open_url_with_headers, post_json
 from bili_fact_checker.models import (
     SearchCandidate,
     SearchProviderCapabilities,
@@ -178,14 +178,158 @@ def _append_unique_candidate(
     return True
 
 
+ZAI_MCP_TOOLS = ("web_search_prime", "webSearchPrime")
+ZAI_MCP_PROTOCOL = "2025-03-26"
+
+
+def zai_mcp_search_url(api_base: str) -> str:
+    host = (urlsplit(api_base).hostname or "api.z.ai").lower()
+    if host == "open.bigmodel.cn":
+        return "https://open.bigmodel.cn/api/mcp/web_search_prime/mcp"
+    return "https://api.z.ai/api/mcp/web_search_prime/mcp"
+
+
+def _parse_mcp_body(text: str) -> Any:
+    messages: list[Any] = []
+    for line in text.splitlines():
+        stripped = line.strip()
+        if not stripped.startswith("data:"):
+            continue
+        data = stripped[5:].strip()
+        if not data:
+            continue
+        try:
+            messages.append(json.loads(data))
+        except json.JSONDecodeError:
+            continue
+    if messages:
+        return messages[-1]
+    if not text.strip():
+        return {}
+    return json.loads(text)
+
+
+def _mcp_rpc_error(payload: Any) -> str:
+    if not isinstance(payload, dict):
+        return ""
+    error = payload.get("error")
+    if isinstance(error, dict):
+        return str(error.get("message") or error.get("code") or "MCP error")
+    result = payload.get("result")
+    if isinstance(result, dict) and result.get("isError"):
+        parts: list[str] = []
+        for item in result.get("content") or []:
+            if isinstance(item, dict) and item.get("text"):
+                parts.append(str(item["text"]))
+        return " ".join(parts).strip() or "MCP tool error"
+    return ""
+
+
+def _search_items_from_value(value: Any) -> list[Any]:
+    if isinstance(value, list):
+        return list(value)
+    if not isinstance(value, dict):
+        return []
+    for key in ("search_result", "results"):
+        items = value.get(key)
+        if isinstance(items, list):
+            return list(items)
+    return []
+
+
+def _parse_zai_mcp_results(raw: Any) -> tuple[list[Any], str]:
+    candidates: list[Any] = [raw]
+    request_id = ""
+    if isinstance(raw, dict):
+        request_id = str(raw.get("request_id") or raw.get("id") or "")
+        for key in ("structuredContent", "data", "result"):
+            if raw.get(key) is not None:
+                candidates.append(raw[key])
+        content = raw.get("content")
+        if isinstance(content, list):
+            for part in content:
+                if not isinstance(part, dict):
+                    continue
+                text = part.get("text")
+                if not isinstance(text, str) or not text.strip():
+                    continue
+                try:
+                    parsed = json.loads(text)
+                except json.JSONDecodeError:
+                    continue
+                if isinstance(parsed, str):
+                    try:
+                        parsed = json.loads(parsed)
+                    except json.JSONDecodeError:
+                        continue
+                candidates.append(parsed)
+                if isinstance(parsed, dict):
+                    request_id = request_id or str(
+                        parsed.get("request_id") or parsed.get("id") or ""
+                    )
+    for candidate in candidates:
+        items = _search_items_from_value(candidate)
+        if items:
+            if isinstance(candidate, dict):
+                request_id = request_id or str(
+                    candidate.get("request_id") or candidate.get("id") or ""
+                )
+            return items, request_id
+    return [], request_id
+
+
+def _default_mcp_transport(
+    url: str,
+    payload: dict[str, Any],
+    *,
+    headers: dict[str, str] | None = None,
+    proxy: str = "",
+    timeout: float = 30,
+) -> tuple[dict[str, str], Any]:
+    body = json.dumps(payload).encode("utf-8")
+    hdrs = {
+        "Content-Type": "application/json",
+        "Accept": "application/json, text/event-stream",
+        **(headers or {}),
+    }
+    resp_headers, raw = open_url_with_headers(
+        url,
+        proxy=proxy,
+        headers=hdrs,
+        data=body,
+        method="POST",
+        timeout=timeout,
+        retries=1,
+    )
+    text = raw.decode("utf-8", "replace")
+    try:
+        parsed = _parse_mcp_body(text)
+    except json.JSONDecodeError as exc:
+        raise SearchProviderError("Z.AI MCP returned a non-JSON response") from exc
+    return resp_headers, parsed
+
+
+def _header_value(headers: dict[str, str], name: str) -> str:
+    wanted = name.lower()
+    for key, value in headers.items():
+        if key.lower() == wanted:
+            return value
+    return ""
+
+
 class ZaiSearchProvider:
+    """Z.AI GLM Coding Plan search via remote MCP `web_search_prime`.
+
+    This is not the separately billed `/web_search` REST endpoint.
+    """
+
     name = "zai"
     capabilities = SearchProviderCapabilities(
         provider=name,
         native_to_llm=True,
         returns_source_urls=True,
         supports_domain_filter=True,
-        supports_recency_filter=True,
+        supports_recency_filter=False,
         reports_usage=False,
     )
 
@@ -193,44 +337,99 @@ class ZaiSearchProvider:
         self,
         settings: Settings,
         *,
-        transport: PostJson = post_json,
-        search_engine: str = "search-prime",
+        transport: Callable[..., Any] = _default_mcp_transport,
     ) -> None:
         self._settings = settings
         self._transport = transport
-        self._search_engine = search_engine
+
+    def _rpc(
+        self,
+        payload: dict[str, Any],
+        *,
+        session_id: str = "",
+        api_key: str,
+    ) -> tuple[dict[str, str], Any]:
+        headers = {"Authorization": f"Bearer {api_key}"}
+        if session_id:
+            headers["Mcp-Session-Id"] = session_id
+        return self._transport(
+            zai_mcp_search_url(self._settings.effective_search_api_base),
+            payload,
+            headers=headers,
+            proxy=self._settings.proxy,
+            timeout=self._settings.search_timeout_seconds,
+        )
 
     def search(self, request: SearchRequest) -> SearchBatch:
         api_key = self._settings.effective_search_api_key
         if not api_key:
             raise SearchUnavailableError("Z.AI search requires the configured AI API key")
 
-        base = self._settings.effective_search_api_base.rstrip("/")
-        payload: dict[str, Any] = {
-            "search_engine": self._search_engine,
-            "search_query": request.text.strip(),
-            "count": request.limit,
-            "search_recency_filter": request.recency,
-        }
+        query = request.text.strip()
         if request.allowed_domain:
-            payload["search_domain_filter"] = request.allowed_domain
+            query = f"{query} site:{request.allowed_domain}"
+        arguments = {"search_query": query, "count": request.limit}
 
         try:
-            data = self._transport(
-                f"{base}/web_search",
-                payload,
-                proxy=self._settings.proxy,
-                headers={"Authorization": f"Bearer {api_key}"},
-                timeout=self._settings.search_timeout_seconds,
+            init_headers, init_body = self._rpc(
+                {
+                    "jsonrpc": "2.0",
+                    "id": 1,
+                    "method": "initialize",
+                    "params": {
+                        "protocolVersion": ZAI_MCP_PROTOCOL,
+                        "capabilities": {},
+                        "clientInfo": {
+                            "name": "bili-fact-checker",
+                            "version": "1.0.0",
+                        },
+                    },
+                },
+                api_key=api_key,
             )
+            error = _mcp_rpc_error(init_body)
+            if error:
+                raise SearchProviderError(f"Z.AI MCP initialize failed: {error}")
+            session_id = _header_value(init_headers, "Mcp-Session-Id")
+            self._rpc(
+                {
+                    "jsonrpc": "2.0",
+                    "method": "notifications/initialized",
+                    "params": {},
+                },
+                session_id=session_id,
+                api_key=api_key,
+            )
+            call_body: Any = None
+            last_error = ""
+            for tool_name in ZAI_MCP_TOOLS:
+                _call_headers, call_body = self._rpc(
+                    {
+                        "jsonrpc": "2.0",
+                        "id": 2,
+                        "method": "tools/call",
+                        "params": {"name": tool_name, "arguments": arguments},
+                    },
+                    session_id=session_id,
+                    api_key=api_key,
+                )
+                last_error = _mcp_rpc_error(call_body)
+                if not last_error:
+                    break
+                if "not found" not in last_error.lower():
+                    break
+            else:
+                last_error = last_error or "MCP tool not found"
+        except SearchProviderError:
+            raise
         except Exception as exc:
-            raise SearchProviderError(f"Z.AI search request failed: {exc}") from exc
+            raise SearchProviderError(f"Z.AI MCP search request failed: {exc}") from exc
 
-        if not isinstance(data, dict):
-            raise SearchProviderError("Z.AI search returned a non-object response")
-        raw_results = data.get("search_result") or []
-        if not isinstance(raw_results, list):
-            raise SearchProviderError("Z.AI search_result is not a list")
+        error = last_error
+        if error:
+            raise SearchProviderError(f"Z.AI MCP search failed: {error}")
+        result = call_body.get("result") if isinstance(call_body, dict) else call_body
+        raw_results, request_id = _parse_zai_mcp_results(result)
 
         candidates: list[SearchCandidate] = []
         rejected = 0
@@ -244,10 +443,10 @@ class ZaiSearchProvider:
                 provider=self.name,
                 rank=source_rank,
                 title=item.get("title"),
-                url=item.get("link"),
-                snippet=item.get("content"),
-                published_at=item.get("publish_date"),
-                raw_reference=item.get("refer"),
+                url=item.get("link") or item.get("url"),
+                snippet=item.get("content") or item.get("snippet"),
+                published_at=item.get("publish_date") or item.get("publishedDate"),
+                raw_reference=item.get("refer") or item.get("media"),
             )
             if normalized is None:
                 rejected += 1
@@ -263,7 +462,7 @@ class ZaiSearchProvider:
             provider=self.name,
             request_count=1,
             result_count=len(candidates),
-            provider_request_id=str(data.get("request_id") or data.get("id") or ""),
+            provider_request_id=request_id,
             billable_uses=None,
         )
         return SearchBatch(
@@ -748,7 +947,7 @@ def build_search_provider(
     """Resolve configuration without making a live or billable capability probe."""
 
     requested = settings.search_provider.strip().lower() or "auto"
-    aliases = {"z.ai": "zai", "zhipu": "zai", "glm": "zai"}
+    aliases = {"z.ai": "zai", "zhipu": "zai", "glm": "zai", "zai-mcp": "zai"}
     requested = aliases.get(requested, requested)
     native = detect_native_search_provider(settings)
 

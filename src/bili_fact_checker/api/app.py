@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import hmac
 import json
 from contextlib import asynccontextmanager
@@ -16,7 +17,17 @@ from bili_fact_checker import __version__
 from bili_fact_checker.api.jobs import JobManager, JobNotFoundError, QueueFullError
 from bili_fact_checker.config import Settings, apply_setup, clear_user_config, setup_status
 from bili_fact_checker.diagnostics import run_doctor
-from bili_fact_checker.ingest import extract_bvid, fetch_video_info
+from bili_fact_checker.ingest import check_bili_login, extract_bvid, fetch_video_info
+from bili_fact_checker.ingest.login import (
+    QrLoginMonitor,
+    generate_login_qr,
+    persist_bili_login,
+    poll_login_qr,
+    public_login_state,
+    qr_svg,
+    should_update_user_config,
+    sync_sessdata_from_cookie_file,
+)
 
 
 class SetupRequest(BaseModel):
@@ -27,6 +38,13 @@ class SetupRequest(BaseModel):
     openai_model: str = Field(default="", max_length=200)
     sessdata: str = Field(default="", max_length=4000)
     persist: bool = False
+
+
+class BiliQrPollRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    qrcode_key: str = Field(min_length=8, max_length=128, pattern=r"^[A-Za-z0-9]+$")
+    persist: bool = True
 
 
 class AnalyzeRequest(BaseModel):
@@ -55,10 +73,12 @@ def create_app(
 ) -> FastAPI:
     configured = settings or Settings.from_env()
     jobs = manager or JobManager(configured)
+    qr_monitor = QrLoginMonitor()
 
     @asynccontextmanager
     async def lifespan(_app: FastAPI):
         yield
+        qr_monitor.stop()
         if manager is None:
             jobs.shutdown(wait=False)
 
@@ -69,6 +89,7 @@ def create_app(
     )
     application.state.settings = configured
     application.state.jobs = jobs
+    application.state.qr_monitor = qr_monitor
 
     def current_settings() -> Settings:
         return application.state.settings
@@ -133,6 +154,63 @@ def create_app(
         status["cleared"] = True
         return status
 
+    @application.post(
+        "/v1/setup/bilibili/qrcode", dependencies=[Depends(authorize)]
+    )
+    async def bili_qrcode() -> dict[str, Any]:
+        try:
+            qr = await asyncio.to_thread(generate_login_qr, current_settings())
+            svg = await asyncio.to_thread(qr_svg, qr.url)
+        except Exception as exc:
+            raise HTTPException(502, f"获取登录二维码失败：{exc}") from exc
+
+        def persist_from_qr(cookies: dict[str, str]) -> tuple[bool, str]:
+            merged = persist_bili_login(
+                current_settings(),
+                cookies,
+                persist_config=should_update_user_config(True),
+            )
+            replace_settings(merged)
+            return check_bili_login(merged)
+
+        qr_monitor.start(current_settings(), qr, svg, persist_from_qr)
+        return {"qrcode_key": qr.qrcode_key, "url": qr.url, "svg": svg}
+
+    @application.get(
+        "/v1/setup/bilibili/session", dependencies=[Depends(authorize)]
+    )
+    async def bili_session() -> dict[str, str]:
+        return qr_monitor.public_state()
+
+    @application.post(
+        "/v1/setup/bilibili/poll", dependencies=[Depends(authorize)]
+    )
+    async def bili_poll(request: BiliQrPollRequest) -> dict[str, Any]:
+        try:
+            result = await asyncio.to_thread(
+                poll_login_qr, current_settings(), request.qrcode_key
+            )
+        except Exception as exc:
+            raise HTTPException(502, f"查询登录状态失败：{exc}") from exc
+        if result.status != "success":
+            return {"status": result.status, "message": result.message}
+        try:
+            merged = persist_bili_login(
+                current_settings(),
+                result.cookies or {},
+                persist_config=should_update_user_config(request.persist),
+            )
+        except Exception as exc:
+            raise HTTPException(502, f"保存登录态失败：{exc}") from exc
+        replace_settings(merged)
+        ok, info = await asyncio.to_thread(check_bili_login, merged)
+        if not ok:
+            return {
+                "status": "error",
+                "message": f"Cookie 已写入，但登录校验失败：{info}",
+            }
+        return {"status": "success", "uname": info, "message": f"已登录 {info}"}
+
     @application.get("/v1/video", dependencies=[Depends(authorize)])
     async def video_info(bvid: str = Query(min_length=5, max_length=300)) -> dict[str, Any]:
         try:
@@ -152,7 +230,9 @@ def create_app(
 
     @application.get("/v1/status", dependencies=[Depends(authorize)])
     async def status() -> dict[str, Any]:
-        active = current_settings()
+        active = sync_sessdata_from_cookie_file(current_settings())
+        if active is not current_settings():
+            replace_settings(active)
         report = run_doctor(active).to_dict()
         report["limits"] = {
             "workers": active.job_workers,
@@ -163,6 +243,9 @@ def create_app(
         }
         report["authentication_required"] = bool(active.api_token)
         report["setup"] = setup_status(active)
+        report["bilibili"] = await asyncio.to_thread(
+            public_login_state, active
+        )
         report["presets"] = {
             "fast": {
                 "label": "快速审阅",
@@ -262,7 +345,10 @@ def create_app(
         path = web_dir / "index.html"
         if not path.exists():
             raise HTTPException(404, "web UI is not installed")
-        return FileResponse(path)
+        return FileResponse(
+            path,
+            headers={"Cache-Control": "no-store"},
+        )
 
     return application
 

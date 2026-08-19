@@ -33,6 +33,40 @@ def _endpoint(base: str, suffix: str) -> str:
     return base if base.endswith(suffix) else f"{base}/{suffix.lstrip('/')}"
 
 
+def _openai_message_text(data: dict[str, Any]) -> str:
+    error = data.get("error")
+    if isinstance(error, dict) and error.get("message"):
+        raise LlmProviderError(
+            f"OpenAI-compatible LLM error: {str(error['message'])[:300]}"
+        )
+    try:
+        message = data["choices"][0]["message"]
+    except (KeyError, IndexError, TypeError) as exc:
+        raise LlmProviderError(
+            "OpenAI-compatible LLM returned no choices"
+        ) from exc
+    content = message.get("content") if isinstance(message, dict) else None
+    if isinstance(content, list):
+        content = "".join(
+            str(part.get("text") or "")
+            for part in content
+            if isinstance(part, dict)
+        )
+    if isinstance(content, str) and content.strip():
+        return content
+    raise LlmProviderError("OpenAI-compatible LLM returned empty text")
+
+
+def _public_failure(prefix: str, exc: BaseException) -> LlmProviderError:
+    detail = str(exc).strip() or exc.__class__.__name__
+    return LlmProviderError(f"{prefix}: {detail[:400]}")
+
+
+def _disable_zai_thinking(api_base: str) -> bool:
+    host = (urlsplit(api_base).hostname or "").lower()
+    return host == "open.bigmodel.cn" or host == "api.z.ai" or host.endswith(".z.ai")
+
+
 class OpenAICompatibleLlmProvider:
     name = "openai-compatible"
 
@@ -51,31 +85,35 @@ class OpenAICompatibleLlmProvider:
             raise LlmProviderError(
                 "缺少 LLM API key：设置 OPENAI_API_KEY 或 GLM_API_KEY"
             )
+        payload: dict[str, Any] = {
+            "model": self._settings.openai_model,
+            "messages": [
+                {"role": "system", "content": system},
+                {"role": "user", "content": prompt},
+            ],
+            "temperature": temperature,
+            "max_tokens": 4096,
+        }
+        if _disable_zai_thinking(self._settings.openai_api_base):
+            payload["thinking"] = {"type": "disabled"}
         try:
             data = self._transport(
                 _endpoint(self._settings.openai_api_base, "chat/completions"),
-                {
-                    "model": self._settings.openai_model,
-                    "messages": [
-                        {"role": "system", "content": system},
-                        {"role": "user", "content": prompt},
-                    ],
-                    "temperature": temperature,
-                },
+                payload,
                 proxy=self._settings.proxy,
                 headers={
                     "Authorization": f"Bearer {self._settings.openai_api_key}"
                 },
-                timeout=120,
+                timeout=180,
+                retries=2,
             )
-            content = data["choices"][0]["message"]["content"]
+            return _openai_message_text(data)
+        except LlmProviderError:
+            raise
         except Exception as exc:
-            raise LlmProviderError(
-                "OpenAI-compatible LLM request failed or returned an invalid response"
+            raise _public_failure(
+                "OpenAI-compatible LLM request failed", exc
             ) from exc
-        if not isinstance(content, str) or not content.strip():
-            raise LlmProviderError("OpenAI-compatible LLM returned empty text")
-        return content
 
 
 class GeminiLlmProvider:
@@ -116,10 +154,10 @@ class GeminiLlmProvider:
                 for part in parts
                 if isinstance(part, dict)
             )
+        except LlmProviderError:
+            raise
         except Exception as exc:
-            raise LlmProviderError(
-                "Gemini LLM request failed or returned an invalid response"
-            ) from exc
+            raise _public_failure("Gemini LLM request failed", exc) from exc
         if not text.strip():
             raise LlmProviderError("Gemini returned empty text")
         return text
@@ -164,10 +202,10 @@ class AnthropicLlmProvider:
                 for block in data["content"]
                 if isinstance(block, dict) and block.get("type") == "text"
             )
+        except LlmProviderError:
+            raise
         except Exception as exc:
-            raise LlmProviderError(
-                "Anthropic LLM request failed or returned an invalid response"
-            ) from exc
+            raise _public_failure("Anthropic LLM request failed", exc) from exc
         if not text.strip():
             raise LlmProviderError("Anthropic returned empty text")
         return text

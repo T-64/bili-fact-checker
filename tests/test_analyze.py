@@ -4,6 +4,8 @@ import json
 from dataclasses import replace
 
 from bili_fact_checker.analyze import (
+    CHUNK_CHARS,
+    _chunk_segments,
     _claims_are_near_duplicate,
     _validated_anchor,
     _select_claims_across_timeline,
@@ -12,6 +14,29 @@ from bili_fact_checker.analyze import (
 )
 from bili_fact_checker.config import Settings
 from bili_fact_checker.ingest import Segment, Transcript, _plain_text_segments
+
+
+def test_extract_chunks_stay_under_flash_timeout_budget():
+    assert CHUNK_CHARS <= 2500
+    transcript = Transcript(
+        bvid="BV1TEST00001",
+        title="长字幕",
+        aid="1",
+        cid="2",
+        source="cc",
+        language="zh-CN",
+        segments=[
+            Segment(start=float(index), end=float(index) + 1, text="房价税费。" * 20)
+            for index in range(80)
+        ],
+    )
+    chunks = _chunk_segments(transcript)
+    assert len(chunks) >= 3
+    assert all(
+        sum(len(item.text) + len(item.id) + 16 for item in chunk) <= CHUNK_CHARS + 80
+        for chunk in chunks
+        if len(chunk) > 1
+    )
 
 
 def test_plain_text_input_is_split_into_bounded_segments():

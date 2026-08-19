@@ -4,7 +4,7 @@ from dataclasses import replace
 
 from bili_fact_checker.config import Settings
 from bili_fact_checker.ingest import Segment, Transcript
-from bili_fact_checker.models import SearchProviderCapabilities, SearchUsage
+from bili_fact_checker.models import ClaimVerdict, EvidenceStrength, SearchProviderCapabilities, SearchUsage
 from bili_fact_checker.pipeline import run_pipeline
 from bili_fact_checker.providers.search import SearchBatch
 
@@ -24,7 +24,7 @@ class EmptySearchProvider:
         )
 
 
-def test_runtime_pipeline_emits_v1_and_abstains_without_fetched_evidence(
+def test_runtime_pipeline_uses_model_prior_without_fetched_evidence(
     monkeypatch, tmp_path,
 ):
     transcript = Transcript(
@@ -63,6 +63,16 @@ def test_runtime_pipeline_emits_v1_and_abstains_without_fetched_evidence(
         "bili_fact_checker.pipeline.build_search_provider",
         lambda _settings: EmptySearchProvider(),
     )
+    monkeypatch.setattr(
+        "bili_fact_checker.evidence.service.assess_prior_with_llm",
+        lambda *_args, **_kwargs: ClaimVerdict(
+            verdict="supported",
+            strength=EvidenceStrength.NONE,
+            reason="无外部证据，模型先验判断（需人工复核）：这是可核对的公开统计口径。",
+            needs_human_review=True,
+            basis="model_prior",
+        ),
+    )
     settings = replace(
         Settings.from_env(),
         max_searches_per_claim=1,
@@ -73,7 +83,9 @@ def test_runtime_pipeline_emits_v1_and_abstains_without_fetched_evidence(
     report = run_pipeline(settings, transcript.bvid, tasks=["verify"], asr=False)
 
     assert report["schema_version"] == "1.0"
-    assert report["claims"][0]["verdict"]["verdict"] == "insufficient_evidence"
+    assert report["claims"][0]["verdict"]["verdict"] == "supported"
+    assert report["claims"][0]["verdict"]["basis"] == "model_prior"
+    assert report["claims"][0]["verdict"]["needs_human_review"] is True
     assert report["claims"][0]["documents"] == []
     assert report["claims"][0]["excerpts"] == []
     assert report["run"]["search_providers"] == ["fixture"]

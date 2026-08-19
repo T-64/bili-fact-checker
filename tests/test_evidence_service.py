@@ -170,6 +170,7 @@ def test_search_snippets_do_not_count_when_pages_cannot_be_fetched():
         FakeSearchProvider(["https://one.example/report"]),
         page_fetcher=fail_fetch,
         excerpt_assessor=supporting_assessor,
+        prior_assessor=lambda *_a, **_k: None,
     )
     result = service.analyze_claim(claim())
     assert result.analysis.candidates
@@ -194,6 +195,7 @@ def test_fabricated_assessment_id_is_rejected_before_aggregation():
         FakeSearchProvider(["https://one.example/report"]),
         page_fetcher=fetched_page,
         excerpt_assessor=dishonest_assessor,
+        prior_assessor=lambda *_a, **_k: None,
     )
     result = service.analyze_claim(claim())
     assert result.analysis.assessments == []
@@ -289,3 +291,62 @@ def test_evidence_prompt_data_cannot_close_boundaries(monkeypatch):
     assert captured[0].count("</claim_data>") == 1
     assert captured[0].count("</evidence_excerpt>") == 1
     assert "\\u003csystem\\u003e" in captured[0]
+
+
+def test_model_prior_prompt_refuses_to_mint_sources(monkeypatch):
+    captured = []
+
+    def fake_chat(_settings, prompt, **_kwargs):
+        captured.append(prompt)
+        return '{"verdict":"insufficient_evidence","rationale":"不知道"}'
+
+    monkeypatch.setattr("bili_fact_checker.evidence.service.chat", fake_chat)
+    from bili_fact_checker.evidence.service import assess_prior_with_llm
+
+    assert assess_prior_with_llm(Settings.from_env(), claim()) is None
+    assert "不得输出 URL" in captured[0]
+
+
+def test_model_prior_accepts_supported_without_excerpt_ids(monkeypatch):
+    def fake_chat(_settings, _prompt, **_kwargs):
+        return '{"verdict":"supported","rationale":"这是被广泛记载的历史现象。"}'
+
+    monkeypatch.setattr("bili_fact_checker.evidence.service.chat", fake_chat)
+    from bili_fact_checker.evidence.service import assess_prior_with_llm
+    from bili_fact_checker.models import EvidenceStrength
+
+    prior = assess_prior_with_llm(Settings.from_env(), claim())
+    assert prior is not None
+    assert prior.verdict == Verdict.SUPPORTED
+    assert prior.basis == "model_prior"
+    assert prior.strength == EvidenceStrength.NONE
+    assert prior.supporting_excerpt_ids == []
+
+
+def test_model_prior_fills_in_when_no_fetched_excerpts():
+    from bili_fact_checker.models import ClaimVerdict, EvidenceStrength
+
+    def prior(_settings, _claim):
+        return ClaimVerdict(
+            verdict=Verdict.SUPPORTED,
+            strength=EvidenceStrength.NONE,
+            reason="无外部证据，模型先验判断（需人工复核）：分段睡眠是被记载的前工业睡眠形态。",
+            needs_human_review=True,
+            basis="model_prior",
+        )
+
+    service = EvidenceService(
+        configured_settings(),
+        FakeSearchProvider(["https://one.example/report"]),
+        page_fetcher=lambda *_a, **_k: (_ for _ in ()).throw(
+            PageFetchError("offline")
+        ),
+        excerpt_assessor=supporting_assessor,
+        prior_assessor=prior,
+    )
+    result = service.analyze_claim(claim())
+    assert result.analysis.verdict.verdict == Verdict.SUPPORTED
+    assert result.analysis.verdict.basis == "model_prior"
+    assert result.analysis.verdict.needs_human_review is True
+    assert result.analysis.excerpts == []
+    assert any(event.code == "model_prior_used" for event in result.events)

@@ -192,6 +192,30 @@ def setup_status(settings: Settings) -> dict[str, object]:
     }
 
 
+def _load_sessdata_from_cookie_file() -> str:
+    path = Path.home() / ".config" / "bili" / "cookies.txt"
+    if not path.is_file():
+        return ""
+    try:
+        lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
+    except OSError:
+        return ""
+    for line in lines:
+        raw = line.strip()
+        if raw.startswith("#HttpOnly_"):
+            raw = raw[len("#HttpOnly_") :]
+        elif not raw or raw.startswith("#"):
+            continue
+        parts = raw.split("\t")
+        if (
+            len(parts) >= 7
+            and parts[5] == "SESSDATA"
+            and "bilibili.com" in parts[0].lower()
+        ):
+            return parts[6].strip()
+    return ""
+
+
 def _load_sessdata_file() -> str:
     path = Path.home() / ".config" / "bili" / "SESSDATA"
     if path.exists():
@@ -247,7 +271,10 @@ class Settings:
         )
         whisper = _env("WHISPER_MODEL") or str(Path.home() / "whisper-model")
         return cls(
-            sessdata=_env("BILI_SESSDATA") or saved.get("sessdata", "") or _load_sessdata_file(),
+            sessdata=_env("BILI_SESSDATA")
+            or saved.get("sessdata", "")
+            or _load_sessdata_from_cookie_file()
+            or _load_sessdata_file(),
             proxy=proxy,
             openai_api_key=api_key,
             openai_api_base=(

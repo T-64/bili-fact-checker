@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import re
 import subprocess
 import sys
 import tempfile
+import time
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
@@ -93,9 +95,13 @@ def _fmt_ts(seconds: float) -> str:
 
 def _api_get(settings: Settings, url: str, cookie: bool = False) -> dict[str, Any]:
     headers: dict[str, str] = {}
-    if cookie and settings.sessdata:
-        headers["Cookie"] = f"SESSDATA={settings.sessdata}"
-        headers["Referer"] = "https://www.bilibili.com/"
+    if cookie:
+        from bili_fact_checker.ingest.login import cookie_header
+
+        value = cookie_header(settings)
+        if value:
+            headers["Cookie"] = value
+            headers["Referer"] = "https://www.bilibili.com/"
     return get_json(url, proxy=settings.proxy, headers=headers or None)
 
 
@@ -256,6 +262,82 @@ def _audio_download_command(
     return command
 
 
+ASR_CACHE_TTL_SECONDS = 7 * 24 * 3600
+
+
+def _asr_cache_path(
+    settings: Settings, bvid: str, page: int, language: str
+) -> Path:
+    digest = hashlib.sha256(
+        f"{bvid}|{page}|{settings.whisper_model}|{language}".encode()
+    ).hexdigest()[:20]
+    return settings.cache_dir / "asr" / f"{bvid}-p{page}-{digest}.json"
+
+
+def _load_asr_cache(
+    settings: Settings, bvid: str, page: int, language: str
+) -> list[Segment] | None:
+    path = _asr_cache_path(settings, bvid, page, language)
+    try:
+        if time.time() - path.stat().st_mtime > ASR_CACHE_TTL_SECONDS:
+            path.unlink(missing_ok=True)
+            return None
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    raw = payload.get("segments") if isinstance(payload, dict) else None
+    if not isinstance(raw, list) or not raw:
+        return None
+    segs: list[Segment] = []
+    for item in raw:
+        if not isinstance(item, dict):
+            return None
+        try:
+            segs.append(
+                Segment(
+                    start=float(item["start"]),
+                    end=float(item["end"]),
+                    text=str(item["text"]),
+                    id=str(item.get("id") or ""),
+                )
+            )
+        except (KeyError, TypeError, ValueError):
+            return None
+    return segs
+
+
+def _save_asr_cache(
+    settings: Settings,
+    bvid: str,
+    page: int,
+    language: str,
+    segs: list[Segment],
+) -> None:
+    if not segs:
+        return
+    path = _asr_cache_path(settings, bvid, page, language)
+    temporary: Path | None = None
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+        temporary = path.with_suffix(f".tmp-{os.getpid()}")
+        temporary.write_text(
+            json.dumps(
+                {"segments": [item.to_dict() for item in segs]},
+                ensure_ascii=False,
+                separators=(",", ":"),
+            ),
+            encoding="utf-8",
+        )
+        temporary.chmod(0o600)
+        os.replace(temporary, path)
+    except OSError:
+        if temporary is not None:
+            try:
+                temporary.unlink(missing_ok=True)
+            except OSError:
+                pass
+
+
 def whisper_transcribe(
     settings: Settings,
     bvid: str,
@@ -264,6 +346,10 @@ def whisper_transcribe(
     page: int = 1,
 ) -> list[Segment]:
     """Download audio via yt-dlp, transcribe with faster-whisper."""
+    cached = _load_asr_cache(settings, bvid, page, language)
+    if cached:
+        return cached
+
     audio_path = os.path.join(tempfile.gettempdir(), f"{bvid}-p{page}.m4a")
     cmd = _audio_download_command(settings, bvid, audio_path, page=page)
 
@@ -290,6 +376,7 @@ def whisper_transcribe(
             if not text:
                 continue
             segs.append(Segment(start=float(seg.start), end=float(seg.end), text=text))
+        _save_asr_cache(settings, bvid, page, language, segs)
         return segs
     finally:
         if os.path.exists(audio_path):

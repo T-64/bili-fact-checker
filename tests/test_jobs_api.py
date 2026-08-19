@@ -20,6 +20,7 @@ def settings(tmp_path, **changes) -> Settings:
         "job_workers": 1,
         "job_queue_size": 1,
         "api_token": "",
+        "sessdata": "",
         **changes,
     }
     return replace(Settings.from_env(), **values)
@@ -232,6 +233,9 @@ def test_packaged_web_ui_contains_primary_accessible_controls():
     assert 'id="analyzeForm"' in content
     assert 'id="setupForm"' in content
     assert 'id="setupPersist"' in content
+    assert 'id="biliLogin"' in content
+    assert 'id="biliLoginPanel"' in content
+    assert "/v1/setup/bilibili/session" in content
     assert 'id="clearSetup"' in content
     assert 'id="pageSelect"' in content
     assert 'label for="bvid"' in content

@@ -30,7 +30,10 @@ def extract_json_array(text: str) -> list[Any]:
     match = re.search(r"\[.*\]", cleaned, re.DOTALL)
     if not match:
         return []
-    value = json.loads(match.group())
+    try:
+        value = json.loads(match.group())
+    except json.JSONDecodeError:
+        return []
     return value if isinstance(value, list) else []
 
 

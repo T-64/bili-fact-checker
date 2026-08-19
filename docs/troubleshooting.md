@@ -9,8 +9,11 @@ or fix the file.
 ## Cookie 过期 / 没有字幕
 
 `need_login_subtitle` usually means `SESSDATA` expired, not that the video has
-no captions. Refresh the cookie from a logged-in browser. If the video truly
-has no CC/AI subtitles, install `[asr]` or pass `--transcript file.srt`.
+no captions. The web UI cannot read Bilibili cookies from the browser (different
+origin). Put a Netscape `cookies.txt` on the server with
+`bili-fact-checker login --from-file`, then refresh. QR login remains a
+fallback. If the video truly has no CC/AI subtitles, install `[asr]` or pass
+`--transcript file.srt`.
 
 ## 搜索预算耗尽
 

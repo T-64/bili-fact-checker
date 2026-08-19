@@ -123,6 +123,51 @@ def test_multipart_video_selection(monkeypatch):
         select_video_part(metadata, 3)
 
 
+def test_whisper_reuses_disk_cache(tmp_path, monkeypatch):
+    import sys
+    import types
+    from dataclasses import replace
+
+    from bili_fact_checker.config import Settings
+    from bili_fact_checker.ingest import whisper_transcribe
+
+    settings = replace(
+        Settings.from_env(),
+        cache_dir=tmp_path,
+        whisper_model=str(tmp_path / "model"),
+    )
+    calls = {"download": 0, "transcribe": 0}
+
+    def fake_run(*_args, **_kwargs):
+        calls["download"] += 1
+
+    monkeypatch.setattr("bili_fact_checker.ingest.subprocess.run", fake_run)
+
+    class FakeSegment:
+        start = 0.0
+        end = 1.0
+        text = "税费占房价的很大一部分。"
+
+    class FakeModel:
+        def __init__(self, *_args, **_kwargs):
+            calls["transcribe"] += 1
+
+        def transcribe(self, *_args, **_kwargs):
+            return [FakeSegment()], None
+
+    fake_module = types.ModuleType("faster_whisper")
+    fake_module.WhisperModel = FakeModel
+    monkeypatch.setitem(sys.modules, "faster_whisper", fake_module)
+
+    first = whisper_transcribe(settings, "BV1TEST00001", language="zh", page=1)
+    second = whisper_transcribe(settings, "BV1TEST00001", language="zh", page=1)
+
+    assert [item.text for item in first] == [FakeSegment.text]
+    assert [item.text for item in second] == [FakeSegment.text]
+    assert calls["download"] == 1
+    assert calls["transcribe"] == 1
+
+
 def test_asr_download_targets_selected_part(tmp_path):
     from bili_fact_checker.config import Settings
     from bili_fact_checker.ingest import _audio_download_command

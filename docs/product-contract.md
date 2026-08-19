@@ -1,8 +1,10 @@
 # Product contract
 
 `bili-fact-checker` is an evidence review assistant for spoken claims in
-Bilibili videos. It is not an oracle and it must never turn model confidence
-or a search result into a factual verdict.
+Bilibili videos. It is not an oracle. Search snippets are not evidence, and
+model memory is not evidence. When retrieval cannot decide a claim, the
+model may still offer a clearly labeled prior judgment that requires human
+review.
 
 ## Audience and primary workflow
 
@@ -22,7 +24,8 @@ The product promise is:
 3. record every search query and retrieval failure;
 4. quote the exact passage used from every fetched source;
 5. distinguish relevant context from supporting or refuting evidence;
-6. return `insufficient_evidence` whenever the evidence bar is not met.
+6. return `insufficient_evidence` whenever the evidence bar is not met, then
+   optionally add a clearly labeled model-prior judgment.
 
 ## Non-negotiable truthfulness rules
 
@@ -32,12 +35,15 @@ The product promise is:
 - A URL is not evidence until the page is fetched and an exact excerpt is
   stored with it.
 - A model may classify an excerpt, but it cannot mint a source URL, evidence
-  identifier, source-quality tier, or final verdict.
+  identifier, or source-quality tier. Evidence-path verdicts are aggregated
+  by code. When no directional excerpt exists, a second model call may return
+  a labeled `basis=model_prior` judgment; that is not evidence.
 - Every cited URL and excerpt identifier must be selected from the retrieved
   evidence supplied to the model and validated by code.
-- No retrieved evidence means `insufficient_evidence`. The application must
-  not emit `likely_true`, `likely_false`, or a truth probability from model
-  memory.
+- No retrieved evidence means `insufficient_evidence`, unless the model prior
+  fallback fires. Prior judgments are labeled `basis=model_prior`, keep
+  `strength=none`, and always require human review. They must not mint URLs or
+  excerpt IDs.
 - Conflicting credible evidence means `disputed`, not whichever position has
   the more persuasive prose.
 - Retrieval, parsing, authentication, subtitle, and model failures must remain

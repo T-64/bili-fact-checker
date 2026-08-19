@@ -18,9 +18,11 @@ BV / 链接
 | `supported` | 支持证据达到门槛，且无同等级反向证据 |
 | `refuted` | 反驳证据达到门槛，且无同等级支持证据 |
 | `disputed` | 可信的支持和反驳材料同时存在 |
-| `insufficient_evidence` | 没有证据，或证据尚未达到自动裁决门槛 |
+| `insufficient_evidence` | 没有证据，证据未达门槛，或模型通识也无法判断 |
 
-搜索摘要和模型记忆永远不算证据。输出是**辅助审阅报告**，不是权威裁决。
+搜索摘要永远不算证据。搜不到或抓不到网页时，模型可以给出带
+`basis=model_prior` 的通识判断（证据强度仍是 `none`，强制人工复核）。
+输出是**辅助审阅报告**，不是权威裁决。
 
 ---
 
@@ -44,18 +46,25 @@ bili-fact-checker serve
 也可以先 `bili-fact-checker serve`，在网页里填首次配置表单。环境变量始终
 覆盖配置文件。完整变量列表见 [`.env.example`](.env.example)。
 
-很多视频的 CC/AI 字幕必须登录才能拉取。若 `bili-fact-checker list` 显示
-`NOT LOGGED IN` / `need_login_subtitle`，从浏览器更新 `SESSDATA`（不要当成
-「视频没字幕」）。`setup` 可以一并保存 Cookie，或继续用：
+很多视频的 CC/AI 字幕必须登录才能拉取。网页打开 `127.0.0.1:8765` **不会**
+读到浏览器里 `.bilibili.com` 的 Cookie（不同源）。把 Netscape
+`cookies.txt` 放到服务端本机后刷新即可：
+
+```bash
+bili-fact-checker login --from-file ~/Downloads/bilibili_cookies.txt
+```
+
+这会写入 `~/.config/bili/cookies.txt` 和 `SESSDATA`（权限 0600）。扫码
+`bili-fact-checker login` 是备用。仍可手动：
 
 ```bash
 export BILI_SESSDATA='你的SESSDATA'   # 或写入 ~/.config/bili/SESSDATA
 ```
 
-默认 `SEARCH_PROVIDER=auto`。使用 Z.AI/智谱、OpenAI、Gemini 或 Anthropic
-时，核查流程会复用同一套 API base/key 做原生搜索，不要求再申请一套搜索服务。
-原生联网搜索可能被供应商单独计费，请在供应商控制台核对规则。未知的
-OpenAI 兼容端点不会被当成带搜索工具。配置示例见
+默认 `SEARCH_PROVIDER=auto`。使用 Z.AI/智谱时，搜索走 GLM Coding Plan 的
+MCP `web_search_prime`，不是另计费的 `/web_search` REST。OpenAI、Gemini、
+Anthropic 仍用各自原生搜索。原生联网搜索可能被供应商计费，请在控制台核对
+规则。未知的 OpenAI 兼容端点不会被当成带搜索工具。配置示例见
 [`docs/providers.md`](docs/providers.md)。
 
 只有无字幕走本地 ASR 时才需要 **`yt-dlp`**、**`ffmpeg`**；有 CC 时字幕
@@ -221,3 +230,4 @@ support bundle。配置文件只在你显式保存时创建（默认
 
 模型、检索和来源页面都可能出错或过时。请核对视频原话、精确引文和来源页面；
 `insufficient_evidence` 表示系统选择弃权，不表示声明为真或为假。
+`basis=model_prior` 表示这是模型通识兜底，不是引文裁决。
