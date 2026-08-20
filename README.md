@@ -1,5 +1,7 @@
 # bili-fact-checker
 
+作者：[谭兆清](https://github.com/T-64)
+
 把 B 站视频变成**可核对的口播分析报告**：总结内容、抽出可核查声明，并尽量附上外部证据。
 
 ```text
@@ -221,7 +223,7 @@ docs/                    # 架构、提供商、排错、schema
 
 ## 许可、隐私与免责
 
-MIT。第三方组件遵循各自许可证。
+MIT，版权归谭兆清。第三方组件遵循各自许可证。
 
 密钥、`SESSDATA` 和 API token 不会写入报告、任务日志或 `doctor --output`
 support bundle。配置文件只在你显式保存时创建（默认

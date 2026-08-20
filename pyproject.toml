@@ -9,7 +9,7 @@ description = "Bilibili oral-content analysis and evidence-backed fact checking 
 readme = "README.md"
 license = { text = "MIT" }
 requires-python = ">=3.11"
-authors = [{ name = "T-64" }]
+authors = [{ name = "谭兆清", email = "65697794+T-64@users.noreply.github.com" }]
 keywords = ["bilibili", "fact-check", "subtitle", "asr", "llm"]
 dependencies = [
   "fastapi>=0.110",
